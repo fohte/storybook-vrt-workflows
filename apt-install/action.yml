@@ -1,0 +1,95 @@
+name: Cached apt install
+description: >-
+  Run an apt-get install command, caching the .deb files it downloads. On a
+  cache hit, the cached .deb files are installed with dpkg directly, with no
+  apt-get and no network access.
+
+inputs:
+  key:
+    description: >-
+      Identifier for this call site. Namespaces the cache path and key so
+      multiple call sites in the same job don't collide.
+    required: true
+  install-command:
+    description: >-
+      Shell command that performs the real apt-get install on a cache miss.
+      Runs from the repo root.
+    required: true
+  cache-key-suffix:
+    description: >-
+      Extra fingerprint to bust the cache when install-command's required
+      packages can change independently of the runner image (e.g. a tool
+      version driving install-command's package list).
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    # ImageVersion is a process environment variable the runner sets, not a
+    # workflow-defined one, so it isn't reachable through the `env` context —
+    # only a shell step can read it.
+    # https://docs.github.com/en/actions/reference/workflows-and-actions/contexts
+    - name: Get runner image version
+      id: image-version
+      shell: bash
+      run: echo "version=$ImageVersion" >> "$GITHUB_OUTPUT"
+
+    - name: Cache apt packages
+      id: apt-cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/apt-debs/${{ inputs.key }}
+        # Keyed on the runner image version: a newer image can ship a
+        # different set of pre-installed packages, which changes which
+        # dependencies actually need a cached .deb. cache-key-suffix covers
+        # the same kind of change coming from install-command's own tooling
+        # instead of the image.
+        key: ${{ runner.os }}-apt-${{ inputs.key }}-${{ steps.image-version.outputs.version }}-${{ inputs.cache-key-suffix }}
+
+    # dpkg doesn't resolve install order across multiple files given in one
+    # invocation, so a dependency can land after the package that needs it
+    # and get left unconfigured. `dpkg --configure -a` finishes configuring
+    # whatever `dpkg -i` couldn't, purely from the already-unpacked local
+    # data — no network access.
+    - name: Install cached apt packages
+      if: steps.apt-cache.outputs.cache-hit == 'true'
+      shell: bash
+      env:
+        CACHE_KEY: ${{ inputs.key }}
+      run: |
+        cache_dir="$HOME/.cache/apt-debs/$CACHE_KEY"
+        shopt -s nullglob
+        debs=("$cache_dir"/*.deb)
+        if [ "${#debs[@]}" -gt 0 ]; then
+          sudo dpkg -i "${debs[@]}" || true
+          sudo dpkg --configure -a
+        fi
+
+    # apt-get clean first: the runner image, or an earlier apt-install call
+    # site in this same job, can leave unrelated .deb files sitting in the
+    # archives dir, which would otherwise leak into this call site's cache.
+    - name: Install apt packages
+      if: steps.apt-cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        # Routed through env rather than interpolated directly into the
+        # script, so the command text can't break out of the script source.
+        INSTALL_COMMAND: ${{ inputs.install-command }}
+      run: |
+        sudo apt-get clean
+        eval "$INSTALL_COMMAND"
+
+    - name: Save downloaded apt packages to cache
+      if: steps.apt-cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        CACHE_KEY: ${{ inputs.key }}
+      run: |
+        cache_dir="$HOME/.cache/apt-debs/$CACHE_KEY"
+        mkdir -p "$cache_dir"
+        shopt -s nullglob
+        debs=(/var/cache/apt/archives/*.deb)
+        if [ "${#debs[@]}" -gt 0 ]; then
+          cp "${debs[@]}" "$cache_dir"/
+        fi

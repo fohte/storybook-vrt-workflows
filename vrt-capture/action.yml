@@ -18,7 +18,7 @@ inputs:
   capture-script:
     description: >-
       npm script that captures screenshots. Invoked as `pnpm run
-      <capture-script> -- --project=<name> --shard=<n>/<total>`; anything
+      <capture-script> --project=<name> --shard=<n>/<total>`; anything
       the consumer needs before capture (e.g. route generation) belongs in
       this script, ahead of the vitest invocation.
     required: true
@@ -94,11 +94,18 @@ runs:
         cache-key-suffix: ${{ steps.playwright-version.outputs.version }}
         install-command: cd ${{ inputs.package-dir }} && pnpm exec playwright install-deps chromium
 
+    # No `--` before the flags: pnpm (unlike npm) forwards arguments placed
+    # directly after the script name to the underlying command, and a literal
+    # `--` here would be forwarded too. vitest's CLI drops everything after a
+    # literal `--` from its parsed options and filters entirely, so
+    # `--project` and `--shard` would silently vanish instead of reaching
+    # vitest -- every project/shard would run instead of just this one, with
+    # no error to flag it.
     - name: Run Storybook screenshots
       shell: bash
       working-directory: ${{ inputs.package-dir }}
       run: |
-        pnpm run ${{ inputs.capture-script }} -- \
+        pnpm run ${{ inputs.capture-script }} \
           --project=${{ inputs.project }} \
           --shard=${{ inputs.shard }}/${{ inputs.shards }}
 

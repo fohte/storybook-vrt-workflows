@@ -119,14 +119,14 @@ reg-suit's config lives in this repo (`reg-suit/regconfig.json`) and is not mean
 
 ### `vrt-capture` inputs
 
-| Input             | Required | Default           | Description                                                                                                           |
-| ----------------- | -------- | ----------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `project`         | yes      | --                | vitest `--project` name to capture.                                                                                   |
-| `shard`           | yes      | --                | 1-based shard index for this job.                                                                                     |
-| `shards`          | yes      | --                | Total number of shards `shard` is drawn from.                                                                         |
-| `capture-script`  | yes      | --                | npm script that captures screenshots, invoked as `pnpm run <capture-script> -- --project=<name> --shard=<n>/<total>`. |
-| `package-dir`     | no       | `.`               | Directory containing the Storybook/vitest project.                                                                    |
-| `screenshots-dir` | no       | `__screenshots__` | Directory (relative to `package-dir`) screenshots are written to.                                                     |
+| Input             | Required | Default           | Description                                                                                                        |
+| ----------------- | -------- | ----------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `project`         | yes      | --                | vitest `--project` name to capture.                                                                                |
+| `shard`           | yes      | --                | 1-based shard index for this job.                                                                                  |
+| `shards`          | yes      | --                | Total number of shards `shard` is drawn from.                                                                      |
+| `capture-script`  | yes      | --                | npm script that captures screenshots, invoked as `pnpm run <capture-script> --project=<name> --shard=<n>/<total>`. |
+| `package-dir`     | no       | `.`               | Directory containing the Storybook/vitest project.                                                                 |
+| `screenshots-dir` | no       | `__screenshots__` | Directory (relative to `package-dir`) screenshots are written to.                                                  |
 
 ### `vrt-report` inputs
 

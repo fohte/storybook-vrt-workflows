@@ -18,32 +18,6 @@ A consumer repo needs:
 - A named npm script that captures screenshots (passed as `capture-script`).
 - An R2 bucket already provisioned for screenshots/baseline/report storage.
 
-### `vrt-capture` inputs
-
-| Input             | Required | Default           | Description                                                                                                           |
-| ----------------- | -------- | ----------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `project`         | yes      | --                | vitest `--project` name to capture.                                                                                   |
-| `shard`           | yes      | --                | 1-based shard index for this job.                                                                                     |
-| `shards`          | yes      | --                | Total number of shards `shard` is drawn from.                                                                         |
-| `capture-script`  | yes      | --                | npm script that captures screenshots, invoked as `pnpm run <capture-script> -- --project=<name> --shard=<n>/<total>`. |
-| `package-dir`     | no       | `.`               | Directory containing the Storybook/vitest project.                                                                    |
-| `screenshots-dir` | no       | `__screenshots__` | Directory (relative to `package-dir`) screenshots are written to.                                                     |
-
-### `vrt-report` inputs
-
-| Input                   | Required | Default                           | Description                                                                                                                       |
-| ----------------------- | -------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `package-dir`           | no       | `.`                               | Directory containing the Storybook/vitest project.                                                                                |
-| `screenshots-dir`       | no       | `__screenshots__`                 | Directory (relative to `package-dir`) every shard's screenshots are downloaded into.                                              |
-| `r2-bucket`             | yes      | --                                | R2 bucket for screenshots/baseline/report.                                                                                        |
-| `r2-endpoint`           | no       | fohte's shared Cloudflare account | S3-compatible endpoint URL that hosts `r2-bucket`. Override for a consumer using its own account.                                 |
-| `report-domain`         | no       | `<r2-bucket>.fohte.net`           | Custom domain the published report and PR comment link are served from. Override for a consumer not using fohte's shared account. |
-| `aws-access-key-id`     | yes      | --                                | AWS-compatible access key ID for `r2-bucket`.                                                                                     |
-| `aws-secret-access-key` | yes      | --                                | AWS-compatible secret access key for `r2-bucket`.                                                                                 |
-| `github-token`          | yes      | --                                | Token used for PR comments and commit statuses (needs `pull-requests:write`, `statuses:write`).                                   |
-
-`vrt-approval.yml` takes only `r2-bucket` and `report-domain` (same meaning as above) -- pass the same `report-domain` value given to `vrt-report`, if any.
-
 ### Example caller
 
 ```yaml
@@ -142,3 +116,29 @@ jobs:
 ```
 
 reg-suit's config lives in this repo (`reg-suit/regconfig.json`) and is not meant to be copied into consumer repos -- `vrt-report` fetches it directly at the pinned ref.
+
+### `vrt-capture` inputs
+
+| Input             | Required | Default           | Description                                                                                                           |
+| ----------------- | -------- | ----------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `project`         | yes      | --                | vitest `--project` name to capture.                                                                                   |
+| `shard`           | yes      | --                | 1-based shard index for this job.                                                                                     |
+| `shards`          | yes      | --                | Total number of shards `shard` is drawn from.                                                                         |
+| `capture-script`  | yes      | --                | npm script that captures screenshots, invoked as `pnpm run <capture-script> -- --project=<name> --shard=<n>/<total>`. |
+| `package-dir`     | no       | `.`               | Directory containing the Storybook/vitest project.                                                                    |
+| `screenshots-dir` | no       | `__screenshots__` | Directory (relative to `package-dir`) screenshots are written to.                                                     |
+
+### `vrt-report` inputs
+
+| Input                   | Required | Default                           | Description                                                                                                                       |
+| ----------------------- | -------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `package-dir`           | no       | `.`                               | Directory containing the Storybook/vitest project.                                                                                |
+| `screenshots-dir`       | no       | `__screenshots__`                 | Directory (relative to `package-dir`) every shard's screenshots are downloaded into.                                              |
+| `r2-bucket`             | yes      | --                                | R2 bucket for screenshots/baseline/report.                                                                                        |
+| `r2-endpoint`           | no       | fohte's shared Cloudflare account | S3-compatible endpoint URL that hosts `r2-bucket`. Override for a consumer using its own account.                                 |
+| `report-domain`         | no       | `<r2-bucket>.fohte.net`           | Custom domain the published report and PR comment link are served from. Override for a consumer not using fohte's shared account. |
+| `aws-access-key-id`     | yes      | --                                | AWS-compatible access key ID for `r2-bucket`.                                                                                     |
+| `aws-secret-access-key` | yes      | --                                | AWS-compatible secret access key for `r2-bucket`.                                                                                 |
+| `github-token`          | yes      | --                                | Token used for PR comments and commit statuses (needs `pull-requests:write`, `statuses:write`).                                   |
+
+`vrt-approval.yml` takes only `r2-bucket` and `report-domain` (same meaning as above) -- pass the same `report-domain` value given to `vrt-report`, if any.

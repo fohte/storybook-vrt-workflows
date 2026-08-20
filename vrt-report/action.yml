@@ -89,15 +89,26 @@ runs:
         R2_BUCKET: ${{ inputs.r2-bucket }}
         R2_ENDPOINT: ${{ inputs.r2-endpoint }}
         REPORT_DOMAIN_INPUT: ${{ inputs.report-domain }}
+        EVENT_NAME: ${{ github.event_name }}
+        # Routed through env rather than interpolated directly into the
+        # script: head.ref is an attacker-controlled branch name (any
+        # non-whitespace, non-`~^:?*[` character is valid), so inlining it
+        # into the script text would let a PR's branch name break out and
+        # run arbitrary shell.
+        PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        PUSH_REF_NAME: ${{ github.ref_name }}
+        PUSH_SHA: ${{ github.sha }}
+        CURRENT_REF: ${{ github.ref }}
       run: |
-        if [ "${{ github.event_name }}" = "pull_request" ]; then
-          branch="${{ github.event.pull_request.head.ref }}"
-          sha="${{ github.event.pull_request.head.sha }}"
+        if [ "$EVENT_NAME" = "pull_request" ]; then
+          branch="$PR_HEAD_REF"
+          sha="$PR_HEAD_SHA"
         else
-          branch="${{ github.ref_name }}"
-          sha="${{ github.sha }}"
+          branch="$PUSH_REF_NAME"
+          sha="$PUSH_SHA"
         fi
-        is_main=$([ "${{ github.ref }}" = "refs/heads/main" ] && echo true || echo false)
+        is_main=$([ "$CURRENT_REF" = "refs/heads/main" ] && echo true || echo false)
         # Falls back to <r2-bucket>.fohte.net -- the convention for buckets
         # on fohte's shared Cloudflare account -- when report-domain isn't
         # set.
@@ -128,7 +139,9 @@ runs:
         echo "expected_key=baseline" >> "$GITHUB_OUTPUT"
         # One key per branch: re-pushing to the same branch overwrites its
         # previous snapshot instead of accumulating a new one per commit.
-        echo "actual_key=branch/${VRT_BRANCH}" >> "$GITHUB_OUTPUT"
+        actual_key="branch/${VRT_BRANCH}"
+        echo "actual_key=$actual_key" >> "$GITHUB_OUTPUT"
+        echo "VRT_REPORT_URL=https://${VRT_REPORT_DOMAIN}/${actual_key}/index.html" >> "$GITHUB_ENV"
 
     - name: Compare VRT screenshots
       shell: bash
@@ -215,7 +228,7 @@ runs:
         branch: ${{ env.VRT_BRANCH }}
         sha: ${{ env.VRT_SHA }}
         out-json-path: ${{ inputs.package-dir }}/.reg/out.json
-        report-url: https://${{ env.VRT_REPORT_DOMAIN }}/${{ steps.vrt-keys.outputs.actual_key }}/index.html
+        report-url: ${{ env.VRT_REPORT_URL }}
         github-token: ${{ inputs.github-token }}
 
     # A run that would report `failure` here must not clobber an approval
@@ -249,7 +262,8 @@ runs:
     # never be un-failed -- it would sit red on main's HEAD permanently.
     #
     # continue-on-error so a transient failure here (rate limit, network
-    # blip) can't skip the baseline update further down.
+    # blip) doesn't fail the caller's job over a best-effort, non-required
+    # status update.
     - name: Set VRT commit status
       if: ${{ env.VRT_IS_MAIN != 'true' && steps.vrt-approval.outputs.approved != 'true' }}
       continue-on-error: true
@@ -259,7 +273,7 @@ runs:
         sha: ${{ env.VRT_SHA }}
         state: ${{ steps.vrt-compare.outputs.has_diff == 'true' && 'failure' || 'success' }}
         description: ${{ steps.vrt-compare.outputs.has_diff == 'true' && 'Visual differences detected' || 'No visual differences' }}
-        target-url: https://${{ env.VRT_REPORT_DOMAIN }}/${{ steps.vrt-keys.outputs.actual_key }}/index.html
+        target-url: ${{ env.VRT_REPORT_URL }}
         github-token: ${{ inputs.github-token }}
 
     # Reached only once reg-suit has successfully published this run's own

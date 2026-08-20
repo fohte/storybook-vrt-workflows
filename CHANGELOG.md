@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/fohte/storybook-vrt-workflows/compare/v0.1.0...v0.1.1) (2026-08-20)
+
+
+### Bug Fixes
+
+* **vrt-capture:** --project/--shard being dropped before reaching vitest ([#10](https://github.com/fohte/storybook-vrt-workflows/issues/10)) ([f305e93](https://github.com/fohte/storybook-vrt-workflows/commit/f305e9320ae98e56fdcd2df5e704cf131aac5158))
+
 ## [0.1.0](https://github.com/fohte/storybook-vrt-workflows/compare/v0.1.0...v0.1.0) (2026-08-20)
 
 

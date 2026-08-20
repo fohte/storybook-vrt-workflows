@@ -96,9 +96,11 @@ runs:
 
     # No `--` before the flags: pnpm (unlike npm) forwards arguments placed
     # directly after the script name to the underlying command, and a literal
-    # `--` here would be forwarded too. vitest's CLI treats everything after
-    # a `--` it receives as a positional test-name filter, so `--project` and
-    # `--shard` would silently be swallowed instead of reaching vitest.
+    # `--` here would be forwarded too. vitest's CLI drops everything after a
+    # literal `--` from its parsed options and filters entirely, so
+    # `--project` and `--shard` would silently vanish instead of reaching
+    # vitest -- every project/shard would run instead of just this one, with
+    # no error to flag it.
     - name: Run Storybook screenshots
       shell: bash
       working-directory: ${{ inputs.package-dir }}

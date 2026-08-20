@@ -1,0 +1,136 @@
+name: VRT capture
+description: >-
+  Captures one shard's Storybook screenshots and uploads them as an
+  artifact. Call once per (project, shard) combination from a matrix job;
+  the caller is responsible for checkout and for installing its own
+  toolchain/dependencies before calling this action.
+
+inputs:
+  project:
+    description: vitest --project name to capture.
+    required: true
+  shard:
+    description: 1-based shard index for this job.
+    required: true
+  shards:
+    description: Total number of shards `shard` is drawn from.
+    required: true
+  capture-script:
+    description: >-
+      npm script that captures screenshots. Invoked as `pnpm run
+      <capture-script> -- --project=<name> --shard=<n>/<total>`; anything
+      the consumer needs before capture (e.g. route generation) belongs in
+      this script, ahead of the vitest invocation.
+    required: true
+  package-dir:
+    description: >-
+      Directory containing the Storybook/vitest project (package.json,
+      .storybook/, vitest.config.ts).
+    default: '.'
+  screenshots-dir:
+    description: >-
+      Directory (relative to package-dir) that @fohte/storybook-addon's
+      vitest-plugin writes screenshots to and reg-suit reads them back
+      from.
+    default: __screenshots__
+
+runs:
+  using: composite
+  steps:
+    # `./` in a composite action resolves against the *caller's* checkout,
+    # so this repo's own apt-install composite action is fetched into a
+    # side directory here and referenced from there instead -- see
+    # README.md.
+    - name: Resolve this action's own ref
+      id: self-ref
+      shell: bash
+      env:
+        ACTION_REF: ${{ github.action_ref }}
+      run: echo "ref=$ACTION_REF" >> "$GITHUB_OUTPUT"
+
+    - name: Checkout storybook-vrt-workflows
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: fohte/storybook-vrt-workflows
+        ref: ${{ steps.self-ref.outputs.ref }}
+        path: .vrt-shared
+
+    # The cached browser binary depends only on the installed playwright
+    # package version, not on the rest of the lockfile -- keying on
+    # hashFiles('pnpm-lock.yaml') would miss on every unrelated dependency
+    # bump.
+    - name: Get Playwright version
+      id: playwright-version
+      shell: bash
+      working-directory: ${{ inputs.package-dir }}
+      run: |
+        version=$(pnpm exec playwright --version | awk '{print $2}')
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+
+    # Storybook stories run through a headless Playwright chromium browser,
+    # which isn't preinstalled on the runner.
+    - name: Cache Playwright browsers
+      id: playwright-cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/ms-playwright
+        key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
+
+    - name: Install Playwright chromium
+      if: steps.playwright-cache.outputs.cache-hit != 'true'
+      shell: bash
+      working-directory: ${{ inputs.package-dir }}
+      run: pnpm exec playwright install chromium
+
+    # ubuntu-latest ships the shared libraries chromium needs to launch,
+    # but not the CJK font packages `install-deps` pulls in -- without
+    # them, Japanese text renders as tofu boxes and every story with
+    # Japanese text shows up as a VRT diff. Needed regardless of the
+    # browser cache above, which only covers the browser binary.
+    - name: Install Playwright system dependencies
+      uses: ./.vrt-shared/apt-install
+      with:
+        key: playwright-deps
+        cache-key-suffix: ${{ steps.playwright-version.outputs.version }}
+        install-command: cd ${{ inputs.package-dir }} && pnpm exec playwright install-deps chromium
+
+    - name: Run Storybook screenshots
+      shell: bash
+      working-directory: ${{ inputs.package-dir }}
+      run: |
+        pnpm run ${{ inputs.capture-script }} -- \
+          --project=${{ inputs.project }} \
+          --shard=${{ inputs.shard }}/${{ inputs.shards }}
+
+    - name: Install ImageMagick
+      uses: ./.vrt-shared/apt-install
+      with:
+        key: imagemagick
+        install-command: sudo apt-get update && sudo apt-get install -y imagemagick
+
+    # A screenshot with zero standard deviation is a single solid color --
+    # nothing rendered. If a component crashes and leaves the page blank, a
+    # blank baseline and a blank actual screenshot are pixel-identical, so
+    # reg-suit reports no diff and the regression goes undetected. Catching
+    # it here, before the baseline can absorb it, keeps a blank screenshot
+    # from ever reaching the shared baseline.
+    - name: Check for blank screenshots
+      shell: bash
+      working-directory: ${{ inputs.package-dir }}
+      run: |
+        blank=$(find "${{ inputs.screenshots-dir }}" -name '*.png' -print0 \
+          | xargs -0 -r identify -format "%[standard-deviation] %i\n" \
+          | awk '$1 == 0')
+
+        if [ -n "$blank" ]; then
+          echo "Blank screenshot(s) detected (nothing rendered):"
+          echo "$blank"
+          exit 1
+        fi
+
+    - name: Upload screenshots
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: vrt-screenshots-${{ inputs.project }}-${{ inputs.shard }}
+        path: ${{ inputs.package-dir }}/${{ inputs.screenshots-dir }}
+        retention-days: 1

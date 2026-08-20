@@ -1,0 +1,287 @@
+name: VRT report
+description: >-
+  Downloads every shard's captured screenshots, compares them against the
+  shared baseline with reg-suit, publishes a report, comments on the PR,
+  sets the `vrt` commit status, and updates the baseline on pushes to
+  `main`. Call once after every vrt-capture matrix job has finished; the
+  caller is responsible for checkout and for installing its own
+  toolchain/dependencies before calling this action.
+#
+# The caller's job must declare `permissions: contents: read,
+# pull-requests: write, statuses: write` -- composite actions can't declare
+# `permissions:` themselves. The caller's job must also declare a
+# `concurrency:` block: overlapping runs for the same ref would otherwise
+# race to publish to the same R2 key at once -- most importantly two main
+# pushes racing to update the single `baseline/actual/` key, where each
+# run's diff was computed against a baseline the other run is concurrently
+# mutating. See README.md for the concurrency group this repo uses.
+
+inputs:
+  package-dir:
+    description: >-
+      Directory containing the Storybook/vitest project (package.json,
+      .storybook/, vitest.config.ts).
+    default: '.'
+  screenshots-dir:
+    description: >-
+      Directory (relative to package-dir) that @fohte/storybook-addon's
+      vitest-plugin writes screenshots to and reg-suit reads them back
+      from.
+    default: __screenshots__
+  r2-bucket:
+    description: >-
+      R2 bucket that stores screenshots, the baseline, and the published
+      report.
+    required: true
+  r2-endpoint:
+    description: >-
+      S3-compatible endpoint URL that hosts r2-bucket. Defaults to
+      fohte's shared Cloudflare account, where every consumer's VRT
+      bucket currently lives.
+    default: https://8d88a085ccc7b11f252419e2f3a25fd6.r2.cloudflarestorage.com
+  report-domain:
+    description: >-
+      Custom domain the published VRT report and PR comment link are
+      served from. Defaults to <r2-bucket>.fohte.net -- the convention
+      for buckets on fohte's shared Cloudflare account.
+    default: ''
+  aws-access-key-id:
+    description: AWS-compatible access key ID for r2-bucket.
+    required: true
+  aws-secret-access-key:
+    description: AWS-compatible secret access key for r2-bucket.
+    required: true
+  github-token:
+    description: >-
+      Token used for PR comments and commit statuses (needs
+      pull-requests:write, statuses:write).
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # `./` in a composite action resolves against the *caller's* checkout,
+    # so this repo's own composite actions and reg-suit config are fetched
+    # into a side directory here and referenced from there instead -- see
+    # README.md.
+    - name: Resolve this action's own ref
+      id: self-ref
+      shell: bash
+      env:
+        ACTION_REF: ${{ github.action_ref }}
+      run: echo "ref=$ACTION_REF" >> "$GITHUB_OUTPUT"
+
+    - name: Checkout storybook-vrt-workflows
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: fohte/storybook-vrt-workflows
+        ref: ${{ steps.self-ref.outputs.ref }}
+        path: .vrt-shared
+
+    # Composite actions can't declare a job-level `env:` block spanning all
+    # steps, so this writes the same variables to $GITHUB_ENV instead --
+    # that persists for the rest of the job, so every later step here (and
+    # in the caller's own job) reads them via the `env` context exactly
+    # like before.
+    - name: Compute VRT context
+      shell: bash
+      env:
+        R2_BUCKET: ${{ inputs.r2-bucket }}
+        R2_ENDPOINT: ${{ inputs.r2-endpoint }}
+        REPORT_DOMAIN_INPUT: ${{ inputs.report-domain }}
+      run: |
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          branch="${{ github.event.pull_request.head.ref }}"
+          sha="${{ github.event.pull_request.head.sha }}"
+        else
+          branch="${{ github.ref_name }}"
+          sha="${{ github.sha }}"
+        fi
+        is_main=$([ "${{ github.ref }}" = "refs/heads/main" ] && echo true || echo false)
+        # Falls back to <r2-bucket>.fohte.net -- the convention for buckets
+        # on fohte's shared Cloudflare account -- when report-domain isn't
+        # set.
+        report_domain="${REPORT_DOMAIN_INPUT:-${R2_BUCKET}.fohte.net}"
+        {
+          echo "VRT_BRANCH=$branch"
+          echo "VRT_SHA=$sha"
+          echo "VRT_IS_MAIN=$is_main"
+          echo "VRT_BUCKET=$R2_BUCKET"
+          echo "VRT_REPORT_DOMAIN=$report_domain"
+          echo "VRT_R2_ENDPOINT=$R2_ENDPOINT"
+        } >> "$GITHUB_ENV"
+
+    - name: Download screenshots
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      with:
+        pattern: vrt-screenshots-*
+        path: ${{ inputs.package-dir }}/${{ inputs.screenshots-dir }}
+        merge-multiple: true
+
+    # expected_key is the single baseline every branch compares against;
+    # actual_key is this branch's report location (shared across every run
+    # on it -- see below).
+    - name: Set VRT snapshot keys
+      id: vrt-keys
+      shell: bash
+      run: |
+        echo "expected_key=baseline" >> "$GITHUB_OUTPUT"
+        # One key per branch: re-pushing to the same branch overwrites its
+        # previous snapshot instead of accumulating a new one per commit.
+        echo "actual_key=branch/${VRT_BRANCH}" >> "$GITHUB_OUTPUT"
+
+    - name: Compare VRT screenshots
+      shell: bash
+      working-directory: ${{ inputs.package-dir }}
+      id: vrt-compare
+      env:
+        VRT_ACTUAL_KEY: ${{ steps.vrt-keys.outputs.actual_key }}
+        VRT_EXPECTED_KEY: ${{ steps.vrt-keys.outputs.expected_key }}
+        VRT_SCREENSHOTS_DIR: ${{ inputs.screenshots-dir }}
+        AWS_ACCESS_KEY_ID: ${{ inputs.aws-access-key-id }}
+        AWS_SECRET_ACCESS_KEY: ${{ inputs.aws-secret-access-key }}
+      run: |
+        reg_config="$GITHUB_WORKSPACE/.vrt-shared/reg-suit/regconfig.json"
+        pnpm exec reg-suit sync-expected -c "$reg_config"
+        pnpm exec reg-suit compare -c "$reg_config"
+
+        # expected/ is byte-for-byte identical to the baseline key's actual/
+        # (that's literally where sync-expected fetched it from), so point
+        # the report's "before" pane at the baseline directly instead of
+        # uploading a duplicate copy under this run's key.
+        expected_rel=$(node -e "console.log(require('path').posix.relative(process.env.VRT_ACTUAL_KEY, process.env.VRT_EXPECTED_KEY))")
+        sed -i "s#\"expectedDir\":\"expected\"#\"expectedDir\":\"${expected_rel}/actual\"#" .reg/index.html
+
+        diff_count=$(jq '(.failedItems | length) + (.newItems | length) + (.deletedItems | length)' .reg/out.json)
+        echo "Diff count: $diff_count"
+        if [ "$diff_count" -eq 0 ]; then
+          echo "has_diff=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "has_diff=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    # A passed item's actual/ file is byte-identical to baseline/actual/
+    # (that's what made it pass), so uploading it again is a full copy of
+    # the baseline for zero information. Deleting it here before publish
+    # also drops it from index.html's embedded report data; out.json is
+    # left untouched, since that's what the PR comment's passing count
+    # reads from.
+    - name: Strip passed items from VRT report
+      shell: bash
+      working-directory: ${{ inputs.package-dir }}
+      run: |
+        jq -r '.passedItems[]' .reg/out.json | while IFS= read -r item; do
+          rm -f -- ".reg/actual/$item"
+        done
+
+        node <<'EOF'
+        const fs = require("fs");
+        const html = fs.readFileSync(".reg/index.html", "utf8");
+        const prefix = "window['__reg__'] = ";
+        const start = html.indexOf(prefix) + prefix.length;
+        const end = html.indexOf(";</script>", start);
+        const report = JSON.parse(html.slice(start, end));
+        report.hasPassed = false;
+        report.passedItems = [];
+        fs.writeFileSync(
+          ".reg/index.html",
+          html.slice(0, start) + JSON.stringify(report) + html.slice(end),
+        );
+        EOF
+
+    - name: Publish VRT report
+      shell: bash
+      working-directory: ${{ inputs.package-dir }}
+      env:
+        VRT_ACTUAL_KEY: ${{ steps.vrt-keys.outputs.actual_key }}
+        VRT_EXPECTED_KEY: ${{ steps.vrt-keys.outputs.expected_key }}
+        VRT_SCREENSHOTS_DIR: ${{ inputs.screenshots-dir }}
+        AWS_ACCESS_KEY_ID: ${{ inputs.aws-access-key-id }}
+        AWS_SECRET_ACCESS_KEY: ${{ inputs.aws-secret-access-key }}
+        # actual/ now only holds failed+new items (see the previous step)
+        # and diff/ only holds failed items' diffs, so this pattern uploads
+        # nothing beyond the report shell when there's no diff -- no need
+        # to branch on has_diff.
+        VRT_PUBLISH_PATTERN: '{*.{html,js,wasm,json},{actual,diff}/**/*.{png,jpeg,jpg,tiff,bmp,gif}}'
+      run: pnpm exec reg-suit publish -n -c "$GITHUB_WORKSPACE/.vrt-shared/reg-suit/regconfig.json"
+
+    # Runs regardless of whether an open PR exists yet: pushing straight to
+    # main (no PR) or to a branch without an open PR both no-op inside the
+    # action instead of failing here.
+    - name: Post VRT PR comment
+      uses: ./.vrt-shared/vrt-comment
+      with:
+        repo: ${{ github.repository }}
+        branch: ${{ env.VRT_BRANCH }}
+        sha: ${{ env.VRT_SHA }}
+        out-json-path: ${{ inputs.package-dir }}/.reg/out.json
+        report-url: https://${{ env.VRT_REPORT_DOMAIN }}/${{ steps.vrt-keys.outputs.actual_key }}/index.html
+        github-token: ${{ inputs.github-token }}
+
+    # A run that would report `failure` here must not clobber an approval
+    # applied to this same commit while this job was still in flight --
+    # that would silently negate a human's explicit "this diff is
+    # intentional" call with the very run that prompted it. A `success`
+    # result never needs this check: overwriting an existing approval with
+    # `success` is a no-op either way.
+    - name: Check for an existing VRT approval
+      if: ${{ env.VRT_IS_MAIN != 'true' && steps.vrt-compare.outputs.has_diff == 'true' }}
+      id: vrt-approval
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO: ${{ github.repository }}
+      run: |
+        approved=$(gh pr list --repo "$REPO" --head "$VRT_BRANCH" --state open --json labels \
+          --jq 'if length == 0 then false else (.[0].labels | any(.name == "vrt-approved")) end')
+        echo "approved=$approved" >> "$GITHUB_OUTPUT"
+
+    # A separate, non-required status (as opposed to the required
+    # `unit-test` gate) so a diff never blocks a merge by itself.
+    # vrt-approval.yml overrides this to success when the `vrt-approved`
+    # label is applied, and clears that label (never this status directly)
+    # on the next push -- the new commit's own status here starts fresh
+    # anyway.
+    #
+    # Skipped on main: a diff there just means a merged PR intentionally
+    # changed the UI, already reviewed and approved on that PR. There's no
+    # open PR to carry a `vrt-approved` label on main, so this status could
+    # never be un-failed -- it would sit red on main's HEAD permanently.
+    #
+    # continue-on-error so a transient failure here (rate limit, network
+    # blip) can't skip the baseline update further down.
+    - name: Set VRT commit status
+      if: ${{ env.VRT_IS_MAIN != 'true' && steps.vrt-approval.outputs.approved != 'true' }}
+      continue-on-error: true
+      uses: ./.vrt-shared/vrt-status
+      with:
+        repo: ${{ github.repository }}
+        sha: ${{ env.VRT_SHA }}
+        state: ${{ steps.vrt-compare.outputs.has_diff == 'true' && 'failure' || 'success' }}
+        description: ${{ steps.vrt-compare.outputs.has_diff == 'true' && 'Visual differences detected' || 'No visual differences' }}
+        target-url: https://${{ env.VRT_REPORT_DOMAIN }}/${{ steps.vrt-keys.outputs.actual_key }}/index.html
+        github-token: ${{ inputs.github-token }}
+
+    # Reached only once reg-suit has successfully published this run's own
+    # report, so a failure above never touches the shared baseline. Only
+    # failed+new items are uploaded (actual/ holds nothing else -- see the
+    # Strip step above) and only deleted items are removed; every passed
+    # item is already correct in baseline/actual/ and is left alone.
+    # Requires has_diff == 'true': a zero-diff run has nothing to change.
+    - name: Update VRT baseline
+      if: ${{ env.VRT_IS_MAIN == 'true' && steps.vrt-compare.outputs.has_diff == 'true' }}
+      shell: bash
+      working-directory: ${{ inputs.package-dir }}
+      env:
+        AWS_ACCESS_KEY_ID: ${{ inputs.aws-access-key-id }}
+        AWS_SECRET_ACCESS_KEY: ${{ inputs.aws-secret-access-key }}
+        AWS_DEFAULT_REGION: auto
+      run: |
+        aws s3 cp .reg/actual "s3://${VRT_BUCKET}/baseline/actual" \
+          --recursive \
+          --endpoint-url "$VRT_R2_ENDPOINT"
+
+        jq -r '.deletedItems[]' .reg/out.json | while IFS= read -r item; do
+          aws s3 rm "s3://${VRT_BUCKET}/baseline/actual/$item" \
+            --endpoint-url "$VRT_R2_ENDPOINT"
+        done

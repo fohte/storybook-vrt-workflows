@@ -1,6 +1,6 @@
 name: VRT approval
 
-# vrt.yml sets the `vrt` commit status per push based on reg-suit's diff
+# vrt-report sets the `vrt` commit status per push based on reg-suit's diff
 # result. This workflow lets a human override that to success for an
 # intentional diff via the `vrt-approved` label, and keeps the label from
 # silently surviving a diff nobody has actually reviewed.
@@ -13,12 +13,17 @@ name: VRT approval
 on:
   workflow_call:
     inputs:
-      bucket:
-        description: >-
-          R2 bucket the VRT report is published under. The report domain is
-          derived by convention as <bucket>.fohte.net.
+      r2-bucket:
+        description: R2 bucket the VRT report is published under.
         type: string
         required: true
+      report-domain:
+        description: >-
+          Custom domain the published VRT report is served from. Defaults to
+          <r2-bucket>.fohte.net -- must match whatever vrt-report's own
+          report-domain input resolved to for this consumer.
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -34,7 +39,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # A new push gets its own head SHA, whose `vrt` status starts fresh
-      # (see vrt.yml) regardless of this label -- but the label itself must
+      # (see vrt-report) regardless of this label -- but the label itself must
       # still be removed, or it keeps reading as "the current diff is
       # approved" when nobody has looked at it yet.
       - name: Remove stale vrt-approved label
@@ -78,11 +83,11 @@ jobs:
         if: >-
           github.event.action == 'labeled' &&
           github.event.label.name == 'vrt-approved'
-        uses: ./.vrt-shared/.github/actions/vrt-status
+        uses: ./.vrt-shared/vrt-status
         with:
           repo: ${{ github.repository }}
           sha: ${{ github.event.pull_request.head.sha }}
           state: success
           description: Approved via vrt-approved label
-          target-url: https://${{ inputs.bucket }}.fohte.net/branch/${{ github.event.pull_request.head.ref }}/index.html
+          target-url: https://${{ inputs.report-domain || format('{0}.fohte.net', inputs.r2-bucket) }}/branch/${{ github.event.pull_request.head.ref }}/index.html
           github-token: ${{ secrets.GITHUB_TOKEN }}

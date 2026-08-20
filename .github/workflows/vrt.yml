@@ -89,28 +89,26 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
+      # `./` in a reusable workflow resolves against the *caller's* checkout,
+      # so this repo's own vrt-setup composite action is fetched into a side
+      # directory here and referenced from there instead -- see README.md.
+      - name: Resolve this workflow's own ref
+        id: self-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: echo "ref=${WORKFLOW_REF#*@}" >> "$GITHUB_OUTPUT"
 
-      - name: Enable corepack
-        run: |
-          corepack enable
-          mise reshim
-
-      - name: Get pnpm store directory
-        id: pnpm-store
-        working-directory: ${{ inputs.install-dir }}
-        run: echo "path=$(pnpm store path)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache pnpm store
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Checkout storybook-vrt-workflows
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles(format('{0}/pnpm-lock.yaml', inputs.install-dir)) }}
-          restore-keys: ${{ runner.os }}-pnpm-store-
+          repository: fohte/storybook-vrt-workflows
+          ref: ${{ steps.self-ref.outputs.ref }}
+          path: .vrt-shared
 
-      - name: Install dependencies
-        working-directory: ${{ inputs.install-dir }}
-        run: pnpm install --frozen-lockfile
+      - name: Set up toolchain and install dependencies
+        uses: ./.vrt-shared/.github/actions/vrt-setup
+        with:
+          install-dir: ${{ inputs.install-dir }}
 
       # The cached browser binary depends only on the installed playwright
       # package version, not on the rest of the lockfile -- keying on
@@ -218,36 +216,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
-
-      - name: Enable corepack
-        run: |
-          corepack enable
-          mise reshim
-
-      - name: Get pnpm store directory
-        id: pnpm-store
-        working-directory: ${{ inputs.install-dir }}
-        run: echo "path=$(pnpm store path)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache pnpm store
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles(format('{0}/pnpm-lock.yaml', inputs.install-dir)) }}
-          restore-keys: ${{ runner.os }}-pnpm-store-
-
-      - name: Install dependencies
-        working-directory: ${{ inputs.install-dir }}
-        run: pnpm install --frozen-lockfile
-
-      - name: Download screenshots
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          pattern: vrt-screenshots-*
-          path: ${{ inputs.package-dir }}/${{ inputs.screenshots-dir }}
-          merge-multiple: true
-
       # `./` in a reusable workflow resolves against the *caller's* checkout,
       # so this repo's own composite actions and reg-suit config are fetched
       # into a side directory here and referenced from there instead -- see
@@ -265,8 +233,21 @@ jobs:
           ref: ${{ steps.self-ref.outputs.ref }}
           path: .vrt-shared
 
+      - name: Set up toolchain and install dependencies
+        uses: ./.vrt-shared/.github/actions/vrt-setup
+        with:
+          install-dir: ${{ inputs.install-dir }}
+
+      - name: Download screenshots
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: vrt-screenshots-*
+          path: ${{ inputs.package-dir }}/${{ inputs.screenshots-dir }}
+          merge-multiple: true
+
       # expected_key is the single baseline every branch compares against;
-      # actual_key is this run's own report location.
+      # actual_key is this branch's report location (shared across every run
+      # on it -- see below).
       - name: Set VRT snapshot keys
         id: vrt-keys
         run: |

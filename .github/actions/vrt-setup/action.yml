@@ -1,0 +1,40 @@
+name: VRT setup
+description: >-
+  Install the toolchain (mise) and dependencies (pnpm, with a pnpm-store
+  cache) needed to run VRT capture or reg-suit. The caller must check out
+  the repo first -- a composite action can't check out the repo it's itself
+  loaded from.
+
+inputs:
+  install-dir:
+    description: Directory to install dependencies from.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
+
+    - name: Enable corepack
+      shell: bash
+      run: |
+        corepack enable
+        mise reshim
+
+    - name: Get pnpm store directory
+      id: pnpm-store
+      shell: bash
+      working-directory: ${{ inputs.install-dir }}
+      run: echo "path=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+    - name: Cache pnpm store
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.pnpm-store.outputs.path }}
+        key: ${{ runner.os }}-pnpm-store-${{ hashFiles(format('{0}/pnpm-lock.yaml', inputs.install-dir)) }}
+        restore-keys: ${{ runner.os }}-pnpm-store-
+
+    - name: Install dependencies
+      shell: bash
+      working-directory: ${{ inputs.install-dir }}
+      run: pnpm install --frozen-lockfile

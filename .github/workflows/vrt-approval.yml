@@ -5,9 +5,10 @@ name: VRT approval
 # intentional diff via the `vrt-approved` label, and keeps the label from
 # silently surviving a diff nobody has actually reviewed.
 #
-# Call-only (workflow_call can't declare a pull_request trigger itself) --
-# trigger this from the caller's own `pull_request: types: [synchronize,
-# labeled]` workflow. See README.md for an example caller.
+# Call-only: a `pull_request` trigger declared here would only fire for PRs
+# in this repo, not the consumer repos that call this workflow -- trigger it
+# from the caller's own `pull_request: types: [synchronize, labeled]`
+# workflow. See README.md for an example caller.
 
 on:
   workflow_call:

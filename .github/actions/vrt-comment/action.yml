@@ -1,0 +1,84 @@
+name: VRT comment
+description: >-
+  Post or update a PR comment summarizing a reg-suit out.json. Resolves the
+  open PR for the given branch and no-ops if none exists.
+
+inputs:
+  repo:
+    description: owner/repo
+    required: true
+  branch:
+    description: Branch name to resolve the open PR from
+    required: true
+  sha:
+    description: Head commit SHA the out.json result was computed for
+    required: true
+  out-json-path:
+    description: Path to reg-suit's out.json
+    required: true
+  report-url:
+    description: VRT report URL to link in the comment
+    required: true
+  github-token:
+    description: Token used for gh api calls (needs pull-requests:write)
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Post or update VRT comment
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO: ${{ inputs.repo }}
+        BRANCH: ${{ inputs.branch }}
+        SHA: ${{ inputs.sha }}
+        OUT_JSON_PATH: ${{ inputs.out-json-path }}
+        REPORT_URL: ${{ inputs.report-url }}
+      run: |
+        pr_number=$(gh pr list --repo "$REPO" --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+        if [ -z "$pr_number" ]; then
+          echo "No open PR for branch '$BRANCH'; skipping VRT comment."
+          exit 0
+        fi
+
+        # Guards against two overlapping runs (e.g. a push and the
+        # auto-format commit it triggers) racing to upsert the comment: the
+        # one for an older head would otherwise overwrite the newer result.
+        head_sha=$(gh pr view "$pr_number" --repo "$REPO" --json headRefOid --jq .headRefOid)
+        if [ "$head_sha" != "$SHA" ]; then
+          echo "PR #$pr_number's head has moved past $SHA (now $head_sha); skipping stale VRT comment."
+          exit 0
+        fi
+
+        failed=$(jq '.failedItems | length' "$OUT_JSON_PATH")
+        new=$(jq '.newItems | length' "$OUT_JSON_PATH")
+        deleted=$(jq '.deletedItems | length' "$OUT_JSON_PATH")
+        passed=$(jq '.passedItems | length' "$OUT_JSON_PATH")
+
+        marker='<!-- vrt-comment -->'
+        body_file=$(mktemp)
+        {
+          echo "$marker"
+          if [ "$failed" -eq 0 ] && [ "$new" -eq 0 ] && [ "$deleted" -eq 0 ]; then
+            echo ":sparkles: **No visual differences.** :sparkles:"
+          else
+            echo "**VRT detected visual differences.**"
+            echo
+            echo "| 🔴 Changed | ⚪ New | ⚫ Deleted | 🔵 Passing |"
+            echo "| --- | --- | --- | --- |"
+            echo "| $failed | $new | $deleted | $passed |"
+          fi
+          echo
+          echo "[View report]($REPORT_URL)"
+        } >"$body_file"
+
+        # gh api's --jq is a plain jq filter string, not the jq binary
+        # itself, so it doesn't support --arg; $marker is a fixed literal
+        # (not external input) and is safe to inline directly.
+        existing_id=$(gh api "repos/$REPO/issues/$pr_number/comments" --paginate --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | head -1)
+        if [ -n "$existing_id" ]; then
+          gh api "repos/$REPO/issues/comments/$existing_id" -X PATCH -F body=@"$body_file"
+        else
+          gh api "repos/$REPO/issues/$pr_number/comments" -X POST -F body=@"$body_file"
+        fi

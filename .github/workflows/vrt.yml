@@ -1,0 +1,427 @@
+name: VRT
+
+# Call-only. See README.md for the full input contract and an example caller.
+on:
+  workflow_call:
+    inputs:
+      package-dir:
+        description: >-
+          Directory containing the Storybook/vitest project (package.json,
+          .storybook/, vitest.config.ts).
+        type: string
+        default: '.'
+      install-dir:
+        description: >-
+          Directory to install dependencies from -- the workspace root for a
+          pnpm workspace, or the same as package-dir for a non-workspace repo.
+        type: string
+        default: '.'
+      capture-script:
+        description: >-
+          npm script that captures screenshots. Invoked as `pnpm run
+          <capture-script> -- --project=<name> --shard=<n>/<total>`; anything
+          the consumer needs before capture (e.g. route generation) belongs in
+          this script, ahead of the vitest invocation.
+        type: string
+        required: true
+      screenshots-dir:
+        description: >-
+          Directory (relative to package-dir) that @fohte/storybook-addon's
+          vitest-plugin writes screenshots to and reg-suit reads them back
+          from.
+        type: string
+        default: __screenshots__
+      projects:
+        description: >-
+          JSON array of vitest --project names to capture and shard, e.g.
+          '["storybook","storybook-mobile"]'.
+        type: string
+        default: '["storybook"]'
+      shards:
+        description: Number of shards per project.
+        type: number
+        default: 1
+      bucket:
+        description: >-
+          R2 bucket that stores screenshots, the baseline, and the published
+          report. The report domain is derived by convention as
+          <bucket>.fohte.net.
+        type: string
+        required: true
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      shards: ${{ steps.shards.outputs.json }}
+    steps:
+      - name: Enumerate shard indices
+        id: shards
+        env:
+          SHARDS: ${{ inputs.shards }}
+        run: echo "json=$(jq -nc --argjson n "$SHARDS" '[range(1; $n + 1)]')" >> "$GITHUB_OUTPUT"
+
+  # vitest's shard sequencer sorts specs by sha1(file path) and slices ranges
+  # off that order -- it never looks at which `--project` a spec belongs to.
+  # Running multiple projects in one `vitest` invocation means every story
+  # file produces one spec per project with the *same* path and thus the same
+  # hash, so ties between them settle in collection order, which isn't stable
+  # across shards. A tied pair straddling a shard boundary gets duplicated
+  # into one shard and dropped from another. One project per job keeps every
+  # hash in a run unique, so the sort -- and the shard split -- is
+  # deterministic.
+  shard:
+    needs: setup
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJSON(inputs.projects) }}
+        shard: ${{ fromJSON(needs.setup.outputs.shards) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
+
+      - name: Enable corepack
+        run: |
+          corepack enable
+          mise reshim
+
+      - name: Get pnpm store directory
+        id: pnpm-store
+        working-directory: ${{ inputs.install-dir }}
+        run: echo "path=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles(format('{0}/pnpm-lock.yaml', inputs.install-dir)) }}
+          restore-keys: ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.install-dir }}
+        run: pnpm install --frozen-lockfile
+
+      # The cached browser binary depends only on the installed playwright
+      # package version, not on the rest of the lockfile -- keying on
+      # hashFiles('pnpm-lock.yaml') would miss on every unrelated dependency
+      # bump.
+      - name: Get Playwright version
+        id: playwright-version
+        working-directory: ${{ inputs.package-dir }}
+        run: |
+          version=$(pnpm exec playwright --version | awk '{print $2}')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # Storybook stories run through a headless Playwright chromium browser,
+      # which isn't preinstalled on the runner. ubuntu-latest ships the shared
+      # libraries chromium needs to launch, but not the CJK font packages
+      # `--with-deps` pulls in -- without them, Japanese text renders as tofu
+      # boxes and every story with Japanese text shows up as a VRT diff. A
+      # cache hit (browser binary only) still needs this.
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Playwright chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        working-directory: ${{ inputs.package-dir }}
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Install Playwright system dependencies
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        working-directory: ${{ inputs.package-dir }}
+        run: pnpm exec playwright install-deps chromium
+
+      - name: Run Storybook screenshots
+        working-directory: ${{ inputs.package-dir }}
+        run: |
+          pnpm run ${{ inputs.capture-script }} -- \
+            --project=${{ matrix.project }} \
+            --shard=${{ matrix.shard }}/${{ inputs.shards }}
+
+      - name: Install ImageMagick
+        run: sudo apt-get update && sudo apt-get install -y imagemagick
+
+      # A screenshot with zero standard deviation is a single solid color --
+      # nothing rendered. If a component crashes and leaves the page blank, a
+      # blank baseline and a blank actual screenshot are pixel-identical, so
+      # reg-suit reports no diff and the regression goes undetected. Catching
+      # it here, before the baseline can absorb it, keeps a blank screenshot
+      # from ever reaching the shared baseline.
+      - name: Check for blank screenshots
+        working-directory: ${{ inputs.package-dir }}
+        run: |
+          blank=$(find "${{ inputs.screenshots-dir }}" -name '*.png' -print0 \
+            | xargs -0 -r identify -format "%[standard-deviation] %i\n" \
+            | awk '$1 == 0')
+
+          if [ -n "$blank" ]; then
+            echo "Blank screenshot(s) detected (nothing rendered):"
+            echo "$blank"
+            exit 1
+          fi
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: vrt-screenshots-${{ matrix.project }}-${{ matrix.shard }}
+          path: ${{ inputs.package-dir }}/${{ inputs.screenshots-dir }}
+          retention-days: 1
+
+  # reg-suit treats anything present in `expected` but missing from `actual`
+  # as deleted, so this job -- and everything it does to the baseline -- must
+  # only run once every shard above has succeeded. `needs: shard` without an
+  # explicit `if:` already skips this job when any shard fails; a partial
+  # screenshot set must never reach `reg-suit compare`, let alone get written
+  # into the shared baseline.
+  report:
+    needs: shard
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      statuses: write
+    env:
+      VRT_BRANCH: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
+      VRT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      VRT_IS_MAIN: ${{ github.ref == 'refs/heads/main' }}
+      VRT_BUCKET: ${{ inputs.bucket }}
+      VRT_REPORT_DOMAIN: ${{ inputs.bucket }}.fohte.net
+      # All of fohte's VRT buckets live in the same Cloudflare account -- only
+      # the bucket name (inputs.bucket) varies per consumer.
+      VRT_R2_ENDPOINT: https://8d88a085ccc7b11f252419e2f3a25fd6.r2.cloudflarestorage.com
+    # Overlapping runs for the same ref would otherwise race to publish to the
+    # same R2 key at once -- most importantly two main pushes racing to
+    # update the single `baseline/actual/` key, where each run's diff was
+    # computed against a baseline the other run is concurrently mutating.
+    concurrency:
+      # Namespaced by is-main so a pull_request run for a fork's own "main"
+      # branch can never land in the same group as the push-triggered run for
+      # this repo's main -- that would queue behind (or get queued behind by)
+      # an unrelated PR run and delay the baseline update.
+      group: vrt-report-${{ (github.ref == 'refs/heads/main') && 'push' || 'pr' }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
+
+      - name: Enable corepack
+        run: |
+          corepack enable
+          mise reshim
+
+      - name: Get pnpm store directory
+        id: pnpm-store
+        working-directory: ${{ inputs.install-dir }}
+        run: echo "path=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles(format('{0}/pnpm-lock.yaml', inputs.install-dir)) }}
+          restore-keys: ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.install-dir }}
+        run: pnpm install --frozen-lockfile
+
+      - name: Download screenshots
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: vrt-screenshots-*
+          path: ${{ inputs.package-dir }}/${{ inputs.screenshots-dir }}
+          merge-multiple: true
+
+      # `./` in a reusable workflow resolves against the *caller's* checkout,
+      # so this repo's own composite actions and reg-suit config are fetched
+      # into a side directory here and referenced from there instead -- see
+      # README.md.
+      - name: Resolve this workflow's own ref
+        id: self-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: echo "ref=${WORKFLOW_REF#*@}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout storybook-vrt-workflows
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: fohte/storybook-vrt-workflows
+          ref: ${{ steps.self-ref.outputs.ref }}
+          path: .vrt-shared
+
+      # expected_key is the single baseline every branch compares against;
+      # actual_key is this run's own report location.
+      - name: Set VRT snapshot keys
+        id: vrt-keys
+        run: |
+          echo "expected_key=baseline" >> "$GITHUB_OUTPUT"
+          # One key per branch: re-pushing to the same branch overwrites its
+          # previous snapshot instead of accumulating a new one per commit.
+          echo "actual_key=branch/${VRT_BRANCH}" >> "$GITHUB_OUTPUT"
+
+      - name: Compare VRT screenshots
+        working-directory: ${{ inputs.package-dir }}
+        id: vrt-compare
+        env:
+          VRT_ACTUAL_KEY: ${{ steps.vrt-keys.outputs.actual_key }}
+          VRT_EXPECTED_KEY: ${{ steps.vrt-keys.outputs.expected_key }}
+          VRT_SCREENSHOTS_DIR: ${{ inputs.screenshots-dir }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          reg_config="$GITHUB_WORKSPACE/.vrt-shared/reg-suit/regconfig.json"
+          pnpm exec reg-suit sync-expected -c "$reg_config"
+          pnpm exec reg-suit compare -c "$reg_config"
+
+          # expected/ is byte-for-byte identical to the baseline key's actual/
+          # (that's literally where sync-expected fetched it from), so point
+          # the report's "before" pane at the baseline directly instead of
+          # uploading a duplicate copy under this run's key.
+          expected_rel=$(node -e "console.log(require('path').posix.relative(process.env.VRT_ACTUAL_KEY, process.env.VRT_EXPECTED_KEY))")
+          sed -i "s#\"expectedDir\":\"expected\"#\"expectedDir\":\"${expected_rel}/actual\"#" .reg/index.html
+
+          diff_count=$(jq '(.failedItems | length) + (.newItems | length) + (.deletedItems | length)' .reg/out.json)
+          echo "Diff count: $diff_count"
+          if [ "$diff_count" -eq 0 ]; then
+            echo "has_diff=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_diff=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # A passed item's actual/ file is byte-identical to baseline/actual/
+      # (that's what made it pass), so uploading it again is a full copy of
+      # the baseline for zero information. Deleting it here before publish
+      # also drops it from index.html's embedded report data; out.json is
+      # left untouched, since that's what the PR comment's passing count
+      # reads from.
+      - name: Strip passed items from VRT report
+        working-directory: ${{ inputs.package-dir }}
+        run: |
+          jq -r '.passedItems[]' .reg/out.json | while IFS= read -r item; do
+            rm -f -- ".reg/actual/$item"
+          done
+
+          node <<'EOF'
+          const fs = require("fs");
+          const html = fs.readFileSync(".reg/index.html", "utf8");
+          const prefix = "window['__reg__'] = ";
+          const start = html.indexOf(prefix) + prefix.length;
+          const end = html.indexOf(";</script>", start);
+          const report = JSON.parse(html.slice(start, end));
+          report.hasPassed = false;
+          report.passedItems = [];
+          fs.writeFileSync(
+            ".reg/index.html",
+            html.slice(0, start) + JSON.stringify(report) + html.slice(end),
+          );
+          EOF
+
+      - name: Publish VRT report
+        working-directory: ${{ inputs.package-dir }}
+        env:
+          VRT_ACTUAL_KEY: ${{ steps.vrt-keys.outputs.actual_key }}
+          VRT_EXPECTED_KEY: ${{ steps.vrt-keys.outputs.expected_key }}
+          VRT_SCREENSHOTS_DIR: ${{ inputs.screenshots-dir }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          # actual/ now only holds failed+new items (see the previous step)
+          # and diff/ only holds failed items' diffs, so this pattern uploads
+          # nothing beyond the report shell when there's no diff -- no need
+          # to branch on has_diff.
+          VRT_PUBLISH_PATTERN: '{*.{html,js,wasm,json},{actual,diff}/**/*.{png,jpeg,jpg,tiff,bmp,gif}}'
+        run: pnpm exec reg-suit publish -n -c "$GITHUB_WORKSPACE/.vrt-shared/reg-suit/regconfig.json"
+
+      # Runs regardless of whether an open PR exists yet: pushing straight to
+      # main (no PR) or to a branch without an open PR both no-op inside the
+      # action instead of failing here.
+      - name: Post VRT PR comment
+        uses: ./.vrt-shared/.github/actions/vrt-comment
+        with:
+          repo: ${{ github.repository }}
+          branch: ${{ env.VRT_BRANCH }}
+          sha: ${{ env.VRT_SHA }}
+          out-json-path: ${{ inputs.package-dir }}/.reg/out.json
+          report-url: https://${{ env.VRT_REPORT_DOMAIN }}/${{ steps.vrt-keys.outputs.actual_key }}/index.html
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # A run that would report `failure` here must not clobber an approval
+      # applied to this same commit while this job was still in flight --
+      # that would silently negate a human's explicit "this diff is
+      # intentional" call with the very run that prompted it. A `success`
+      # result never needs this check: overwriting an existing approval with
+      # `success` is a no-op either way.
+      - name: Check for an existing VRT approval
+        if: ${{ env.VRT_IS_MAIN != 'true' && steps.vrt-compare.outputs.has_diff == 'true' }}
+        id: vrt-approval
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          approved=$(gh pr list --repo "$REPO" --head "$VRT_BRANCH" --state open --json labels \
+            --jq 'if length == 0 then false else (.[0].labels | any(.name == "vrt-approved")) end')
+          echo "approved=$approved" >> "$GITHUB_OUTPUT"
+
+      # A separate, non-required status (as opposed to the required
+      # `unit-test` gate) so a diff never blocks a merge by itself.
+      # vrt-approval.yml overrides this to success when the `vrt-approved`
+      # label is applied, and clears that label (never this status directly)
+      # on the next push -- the new commit's own status here starts fresh
+      # anyway.
+      #
+      # Skipped on main: a diff there just means a merged PR intentionally
+      # changed the UI, already reviewed and approved on that PR. There's no
+      # open PR to carry a `vrt-approved` label on main, so this status could
+      # never be un-failed -- it would sit red on main's HEAD permanently.
+      #
+      # continue-on-error so a transient failure here (rate limit, network
+      # blip) can't skip the baseline update further down.
+      - name: Set VRT commit status
+        if: ${{ env.VRT_IS_MAIN != 'true' && steps.vrt-approval.outputs.approved != 'true' }}
+        continue-on-error: true
+        uses: ./.vrt-shared/.github/actions/vrt-status
+        with:
+          repo: ${{ github.repository }}
+          sha: ${{ env.VRT_SHA }}
+          state: ${{ steps.vrt-compare.outputs.has_diff == 'true' && 'failure' || 'success' }}
+          description: ${{ steps.vrt-compare.outputs.has_diff == 'true' && 'Visual differences detected' || 'No visual differences' }}
+          target-url: https://${{ env.VRT_REPORT_DOMAIN }}/${{ steps.vrt-keys.outputs.actual_key }}/index.html
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Reached only once reg-suit has successfully published this run's own
+      # report, so a failure above never touches the shared baseline. Only
+      # failed+new items are uploaded (actual/ holds nothing else -- see the
+      # Strip step above) and only deleted items are removed; every passed
+      # item is already correct in baseline/actual/ and is left alone.
+      # Requires has_diff == 'true': a zero-diff run has nothing to change.
+      - name: Update VRT baseline
+        if: ${{ env.VRT_IS_MAIN == 'true' && steps.vrt-compare.outputs.has_diff == 'true' }}
+        working-directory: ${{ inputs.package-dir }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          aws s3 cp .reg/actual "s3://${VRT_BUCKET}/baseline/actual" \
+            --recursive \
+            --endpoint-url "$VRT_R2_ENDPOINT"
+
+          jq -r '.deletedItems[]' .reg/out.json | while IFS= read -r item; do
+            aws s3 rm "s3://${VRT_BUCKET}/baseline/actual/$item" \
+              --endpoint-url "$VRT_R2_ENDPOINT"
+          done

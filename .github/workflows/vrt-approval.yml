@@ -1,0 +1,87 @@
+name: VRT approval
+
+# vrt.yml sets the `vrt` commit status per push based on reg-suit's diff
+# result. This workflow lets a human override that to success for an
+# intentional diff via the `vrt-approved` label, and keeps the label from
+# silently surviving a diff nobody has actually reviewed.
+#
+# Call-only (workflow_call can't declare a pull_request trigger itself) --
+# trigger this from the caller's own `pull_request: types: [synchronize,
+# labeled]` workflow. See README.md for an example caller.
+
+on:
+  workflow_call:
+    inputs:
+      bucket:
+        description: >-
+          R2 bucket the VRT report is published under. The report domain is
+          derived by convention as <bucket>.fohte.net.
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  handle-vrt-approval:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      statuses: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # A new push gets its own head SHA, whose `vrt` status starts fresh
+      # (see vrt.yml) regardless of this label -- but the label itself must
+      # still be removed, or it keeps reading as "the current diff is
+      # approved" when nobody has looked at it yet.
+      - name: Remove stale vrt-approved label
+        if: >-
+          github.event.action == 'synchronize' &&
+          contains(github.event.pull_request.labels.*.name, 'vrt-approved')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr edit ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} \
+            --remove-label vrt-approved
+
+      # `./` in a reusable workflow resolves against the *caller's* checkout,
+      # so vrt-status is fetched from this repo into a side directory instead
+      # -- see README.md.
+      - name: Resolve this workflow's own ref
+        if: >-
+          github.event.action == 'labeled' &&
+          github.event.label.name == 'vrt-approved'
+        id: self-ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: echo "ref=${WORKFLOW_REF#*@}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout storybook-vrt-workflows
+        if: >-
+          github.event.action == 'labeled' &&
+          github.event.label.name == 'vrt-approved'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: fohte/storybook-vrt-workflows
+          ref: ${{ steps.self-ref.outputs.ref }}
+          path: .vrt-shared
+
+      # Removing the label again (`unlabeled`) intentionally does not revert
+      # this -- that would need re-deriving whatever the last actual diff
+      # result was, which is out of scope here. The only invalidation this
+      # workflow implements is the unconditional one above: a new push.
+      - name: Set VRT status to success
+        if: >-
+          github.event.action == 'labeled' &&
+          github.event.label.name == 'vrt-approved'
+        uses: ./.vrt-shared/.github/actions/vrt-status
+        with:
+          repo: ${{ github.repository }}
+          sha: ${{ github.event.pull_request.head.sha }}
+          state: success
+          description: Approved via vrt-approved label
+          target-url: https://${{ inputs.bucket }}.fohte.net/branch/${{ github.event.pull_request.head.ref }}/index.html
+          github-token: ${{ secrets.GITHUB_TOKEN }}

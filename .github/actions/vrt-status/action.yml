@@ -1,0 +1,41 @@
+name: VRT status
+description: Set the `vrt` commit status via the GitHub API.
+
+inputs:
+  repo:
+    description: owner/repo
+    required: true
+  sha:
+    description: Commit SHA to set the status on
+    required: true
+  state:
+    description: success or failure
+    required: true
+  description:
+    description: Status description text
+    required: true
+  target-url:
+    description: URL the status links to
+    required: true
+  github-token:
+    description: Token used for the gh api call (needs statuses:write)
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Set commit status
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO: ${{ inputs.repo }}
+        SHA: ${{ inputs.sha }}
+        STATE: ${{ inputs.state }}
+        DESCRIPTION: ${{ inputs.description }}
+        TARGET_URL: ${{ inputs.target-url }}
+      run: |
+        gh api "repos/$REPO/statuses/$SHA" \
+          -f state="$STATE" \
+          -f context=vrt \
+          -f description="$DESCRIPTION" \
+          -f target_url="$TARGET_URL"

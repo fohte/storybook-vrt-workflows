@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/fohte/storybook-vrt-workflows/compare/v0.1.1...v0.1.2) (2026-08-21)
+
+
+### Bug Fixes
+
+* **vrt-approval:** resolve this workflow's own ref correctly ([#12](https://github.com/fohte/storybook-vrt-workflows/issues/12)) ([5690231](https://github.com/fohte/storybook-vrt-workflows/commit/5690231add4a62f945214624455c7ab3d765eb7f))
+
 ## [0.1.1](https://github.com/fohte/storybook-vrt-workflows/compare/v0.1.0...v0.1.1) (2026-08-20)
 
 

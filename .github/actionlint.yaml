@@ -1,0 +1,8 @@
+paths:
+  .github/workflows/vrt-approval.yml:
+    ignore:
+      # actionlint doesn't know about job.workflow_ref yet -- it's a real,
+      # documented GitHub Actions context property, just not in actionlint's
+      # bundled type definitions. Tracked upstream:
+      # https://github.com/rhysd/actionlint/issues/696
+      - 'property "workflow_ref" is not defined in object type \{check_run_id:'

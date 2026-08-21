@@ -62,7 +62,12 @@ jobs:
           github.event.label.name == 'vrt-approved'
         id: self-ref
         env:
-          WORKFLOW_REF: ${{ github.workflow_ref }}
+          # github.workflow_ref points at the *caller's* workflow, not this
+          # one -- job.workflow_ref is the one that tracks whichever workflow
+          # file actually defines the running job, which for a reusable
+          # workflow is this file. See
+          # https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#job-context.
+          WORKFLOW_REF: ${{ job.workflow_ref }}
         run: echo "ref=${WORKFLOW_REF#*@}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout storybook-vrt-workflows

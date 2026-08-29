@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/fohte/storybook-vrt-workflows/compare/v0.1.2...v0.1.3) (2026-08-29)
+
+
+### Features
+
+* **vrt-capture:** detect duplicate screenshots within the same story ([#29](https://github.com/fohte/storybook-vrt-workflows/issues/29)) ([9865ef2](https://github.com/fohte/storybook-vrt-workflows/commit/9865ef2374dd00c7590a42d6eb3fb4f1a5dd7d95))
+
 ## [0.1.2](https://github.com/fohte/storybook-vrt-workflows/compare/v0.1.1...v0.1.2) (2026-08-21)
 
 

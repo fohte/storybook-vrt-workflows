@@ -1,4 +1,19 @@
 {
   $schema: 'https://docs.renovatebot.com/renovate-schema.json',
   extends: ['github>fohte/renovate-config:base.json5'],
+
+  packageRules: [
+    // This repo distributes composite actions (`*/action.yml`), so their
+    // `uses:` steps are a runtime dependency for downstream consumers, not
+    // just CI config. base.json5 tags all github-actions updates as `ci:`
+    // (no release-please bump) under the assumption that GitHub Actions are
+    // only used to run this repo's own CI; override back to `deps:` here so
+    // action.yml updates get a patch release.
+    {
+      matchManagers: ['github-actions'],
+      matchFileNames: ['**/action.yml'],
+      commitMessagePrefix: 'deps:',
+      semanticCommitScope: null,
+    },
+  ],
 }

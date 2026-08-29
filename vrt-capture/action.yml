@@ -135,6 +135,45 @@ runs:
           exit 1
         fi
 
+    # Fails if stories in the same directory produce byte-identical
+    # screenshots (e.g. unskipped behavior stories or broken variants).
+    - name: Check for duplicate screenshots
+      shell: bash
+      working-directory: ${{ inputs.package-dir }}
+      run: |
+        dupes=$(find "${{ inputs.screenshots-dir }}" -name '*.png' -print0 \
+          | xargs -0 -r sha256sum \
+          | awk '{
+              hash = substr($0, 1, 64)
+              path = substr($0, 67)
+              dir = path
+              sub(/\/[^\/]*$/, "", dir)
+              print dir "\t" hash "\t" path
+            }' \
+          | sort \
+          | awk -F'\t' '
+              function flush() {
+                if (n > 1) {
+                  print "Duplicate screenshots in " curdir ":"
+                  for (i = 1; i <= n; i++) print "  " files[i]
+                }
+                n = 0
+              }
+              {
+                key = $1 SUBSEP $2
+                if (key != prevkey) { flush(); curdir = $1 }
+                n++
+                files[n] = $3
+                prevkey = key
+              }
+              END { flush() }
+            ')
+
+        if [ -n "$dupes" ]; then
+          echo "$dupes"
+          exit 1
+        fi
+
     - name: Upload screenshots
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:

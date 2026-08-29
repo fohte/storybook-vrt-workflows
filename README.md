@@ -128,6 +128,16 @@ reg-suit's config lives in this repo (`reg-suit/regconfig.json`) and is not mean
 | `package-dir`     | no       | `.`               | Directory containing the Storybook/vitest project.                                                                 |
 | `screenshots-dir` | no       | `__screenshots__` | Directory (relative to `package-dir`) screenshots are written to.                                                  |
 
+### Triaging duplicate screenshot failures
+
+`vrt-capture`'s "Check for duplicate screenshots" step fails when two stories in the same directory render byte-identical screenshots. The correct fix depends on whether the duplicated stories have a `play` function:
+
+- **Both stories have `play`** (behavior tests): landing on the same screen state is expected, so add `parameters: { screenshot: { skip: true } }` (the skip flag `@fohte/storybook-addon`'s screenshot plugin reads) to skip the screenshot.
+- **Only one has `play`**: skip only that story.
+- **Neither has `play`** (both stories assert on appearance): don't skip. An identical screenshot means the component or the story has a bug -- find it and fix it.
+
+This isn't purely "has `play` -> skippable": a story that asserts on the visual result reached via a `play` interaction still needs its own screenshot even though it has `play`. The question is where the story's assertion actually lives -- in `play`'s `expect` calls, or in the rendered appearance.
+
 ### `vrt-report` inputs
 
 | Input                   | Required | Default                           | Description                                                                                                                       |

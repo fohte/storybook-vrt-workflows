@@ -171,6 +171,8 @@ runs:
 
         if [ -n "$dupes" ]; then
           echo "$dupes"
+          echo
+          echo "See https://github.com/fohte/storybook-vrt-workflows#triaging-duplicate-screenshot-failures for how to triage this."
           exit 1
         fi
 

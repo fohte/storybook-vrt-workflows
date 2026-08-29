@@ -135,26 +135,23 @@ runs:
           exit 1
         fi
 
-    # Two stories whose screenshots are byte-identical mean one of two
-    # things: a story that should be excluded from capture (e.g. a
-    # behavior-only story -- see parameters.screenshot.skip in
-    # @storycap-testrun/browser) or a component/story bug where states
-    # that are supposed to differ render the same. Either way, reg-suit
-    # can never catch a regression in the story that never changes, so
-    # it's better to fail loudly here than let it merge silently.
-    # Grouping by directory (not just by hash) keeps this to comparisons
-    # within a single story file -- ${{ inputs.project }} shards run
-    # different viewports, so screenshots would never collide across
-    # projects anyway.
+    # Fails if stories in the same directory produce byte-identical
+    # screenshots (e.g. unskipped behavior stories or broken variants).
     - name: Check for duplicate screenshots
       shell: bash
       working-directory: ${{ inputs.package-dir }}
       run: |
         dupes=$(find "${{ inputs.screenshots-dir }}" -name '*.png' -print0 \
           | xargs -0 -r sha256sum \
-          | awk '{ dir = $2; sub(/\/[^\/]*$/, "", dir); print dir, $1, $2 }' \
+          | awk '{
+              hash = substr($0, 1, 64)
+              path = substr($0, 67)
+              dir = path
+              sub(/\/[^\/]*$/, "", dir)
+              print dir "\t" hash "\t" path
+            }' \
           | sort \
-          | awk '
+          | awk -F'\t' '
               function flush() {
                 if (n > 1) {
                   print "Duplicate screenshots in " curdir ":"

@@ -132,7 +132,7 @@ reg-suit's config lives in this repo (`reg-suit/regconfig.json`) and is not mean
 
 `vrt-capture`'s "Check for duplicate screenshots" step fails when two stories in the same directory render byte-identical screenshots. The correct fix depends on whether the duplicated stories have a `play` function:
 
-- **Both stories have `play`** (behavior tests): landing on the same screen state is expected, so add `parameters: { screenshot: { skip: true } }` to skip the screenshot.
+- **Both stories have `play`** (behavior tests): landing on the same screen state is expected, so add `parameters: { screenshot: { skip: true } }` (the skip flag `@fohte/storybook-addon`'s screenshot plugin reads) to skip the screenshot.
 - **Only one has `play`**: skip only that story.
 - **Neither has `play`** (both stories assert on appearance): don't skip. An identical screenshot means the component or the story has a bug -- find it and fix it.
 

@@ -3,7 +3,8 @@
     "workingDir": ".reg",
     "actualDir": "${VRT_SCREENSHOTS_DIR}",
     "matchingThreshold": 0.01,
-    "enableAntialias": true
+    "enableAntialias": true,
+    "thresholdPixel": 10
   },
   "plugins": {
     "reg-simple-keygen-plugin": {

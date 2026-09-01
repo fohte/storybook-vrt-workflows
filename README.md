@@ -117,8 +117,6 @@ jobs:
 
 reg-suit's config lives in this repo (`reg-suit/regconfig.json`) and is not meant to be copied into consumer repos -- `vrt-report` fetches it directly at the pinned ref.
 
-`core.thresholdPixel` is an absolute per-image diff-pixel count applied uniformly to every screenshot in every consumer repo, not scaled by image or element size. A genuine regression confined to a region at or under this pixel count (e.g. a small icon or a thin border) will not be flagged.
-
 ### `vrt-capture` inputs
 
 | Input             | Required | Default           | Description                                                                                                        |

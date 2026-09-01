@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.4](https://github.com/fohte/storybook-vrt-workflows/compare/v0.1.3...v0.1.4) (2026-09-01)
+
+
+### Bug Fixes
+
+* **reg-suit:** prevent false-positive VRT failures caused by subpixel rendering differences ([#37](https://github.com/fohte/storybook-vrt-workflows/issues/37)) ([4380b67](https://github.com/fohte/storybook-vrt-workflows/commit/4380b671b1cdd62f5ef3c1cd37330dd8955fc578))
+* **vrt-capture:** guide triage steps for duplicate screenshot detection ([#31](https://github.com/fohte/storybook-vrt-workflows/issues/31)) ([4eaef61](https://github.com/fohte/storybook-vrt-workflows/commit/4eaef61ae5ab05d2db601bd785e0fc93c2cf6ff4))
+
+
+### Dependencies
+
+* Update GitHub Artifact Actions (major) ([#9](https://github.com/fohte/storybook-vrt-workflows/issues/9)) ([88f6679](https://github.com/fohte/storybook-vrt-workflows/commit/88f6679b70882264ccd900afa46d26515e0b375b))
+
 ## [0.1.3](https://github.com/fohte/storybook-vrt-workflows/compare/v0.1.2...v0.1.3) (2026-08-29)
 
 

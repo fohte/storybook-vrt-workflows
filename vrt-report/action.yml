@@ -15,6 +15,11 @@ description: >-
 # pushes racing to update the single `baseline/actual/` key, where each
 # run's diff was computed against a baseline the other run is concurrently
 # mutating. See README.md for the concurrency group this repo uses.
+#
+# Serializing runs this way still doesn't guarantee they finish in commit
+# order -- an older commit's run can finish after a newer commit's. The
+# "Check if VRT_SHA is still main's HEAD" step below guards the baseline
+# write itself against that case.
 
 inputs:
   package-dir:
@@ -276,6 +281,22 @@ runs:
         target-url: ${{ env.VRT_REPORT_URL }}
         github-token: ${{ inputs.github-token }}
 
+    # Runs for main pushes with a diff can finish out of commit order (see
+    # the concurrency comment at the top of this file), so a run whose
+    # VRT_SHA is no longer main's tip is comparing against a baseline
+    # that's already been superseded -- writing it now would revert the
+    # baseline to a stale image. Skip rather than fail: the run for
+    # whatever commit *is* the current tip always does its own compare and
+    # write later, so no change is ever permanently dropped.
+    - name: Check if VRT_SHA is still main's HEAD
+      if: ${{ env.VRT_IS_MAIN == 'true' && steps.vrt-compare.outputs.has_diff == 'true' }}
+      id: vrt-main-head
+      shell: bash
+      run: |
+        remote_head=$(git ls-remote origin refs/heads/main | cut -f1)
+        is_current=$([ "$remote_head" = "$VRT_SHA" ] && echo true || echo false)
+        echo "is_current=$is_current" >> "$GITHUB_OUTPUT"
+
     # Reached only once reg-suit has successfully published this run's own
     # report, so a failure above never touches the shared baseline. Only
     # failed+new items are uploaded (actual/ holds nothing else -- see the
@@ -283,7 +304,7 @@ runs:
     # item is already correct in baseline/actual/ and is left alone.
     # Requires has_diff == 'true': a zero-diff run has nothing to change.
     - name: Update VRT baseline
-      if: ${{ env.VRT_IS_MAIN == 'true' && steps.vrt-compare.outputs.has_diff == 'true' }}
+      if: ${{ env.VRT_IS_MAIN == 'true' && steps.vrt-compare.outputs.has_diff == 'true' && steps.vrt-main-head.outputs.is_current == 'true' }}
       shell: bash
       working-directory: ${{ inputs.package-dir }}
       env:

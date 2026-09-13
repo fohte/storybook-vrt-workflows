@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.5](https://github.com/fohte/storybook-vrt-workflows/compare/v0.1.4...v0.1.5) (2026-09-13)
+
+
+### Bug Fixes
+
+* **vrt-report:** skip overwriting the baseline from older commits ([#48](https://github.com/fohte/storybook-vrt-workflows/issues/48)) ([2062033](https://github.com/fohte/storybook-vrt-workflows/commit/2062033d123588bb457923f76e8526bbb7389c54))
+
 ## [0.1.4](https://github.com/fohte/storybook-vrt-workflows/compare/v0.1.3...v0.1.4) (2026-09-01)
 
 

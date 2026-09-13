@@ -82,6 +82,8 @@ jobs:
     # same R2 key at once -- most importantly two main pushes racing to
     # update the single `baseline/actual/` key, where each run's diff was
     # computed against a baseline the other run is concurrently mutating.
+    # This doesn't guarantee commit order for runs that finish sequentially;
+    # vrt-report guards the baseline write itself against that case.
     concurrency:
       group: vrt-report-${{ (github.ref == 'refs/heads/main') && 'push' || 'pr' }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
       cancel-in-progress: false

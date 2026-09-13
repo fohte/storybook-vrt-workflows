@@ -14,7 +14,8 @@ description: >-
 # race to publish to the same R2 key at once -- most importantly two main
 # pushes racing to update the single `baseline/actual/` key, where each
 # run's diff was computed against a baseline the other run is concurrently
-# mutating. See README.md for the concurrency group this repo uses.
+# mutating. See README.md for the concurrency group this repo uses. This
+# only rules out overlapping runs, not commit order -- see below.
 
 inputs:
   package-dir:
@@ -276,6 +277,18 @@ runs:
         target-url: ${{ env.VRT_REPORT_URL }}
         github-token: ${{ inputs.github-token }}
 
+    # Concurrency does not guarantee completion in commit order; guard
+    # against older runs overwriting the baseline with a stale image.
+    - name: Check if VRT_SHA is still main's HEAD
+      if: ${{ env.VRT_IS_MAIN == 'true' && steps.vrt-compare.outputs.has_diff == 'true' }}
+      id: vrt-main-head
+      continue-on-error: true
+      shell: bash
+      run: |
+        remote_head=$(git ls-remote origin refs/heads/main | cut -f1)
+        is_current=$([ "$remote_head" = "$VRT_SHA" ] && echo true || echo false)
+        echo "is_current=$is_current" >> "$GITHUB_OUTPUT"
+
     # Reached only once reg-suit has successfully published this run's own
     # report, so a failure above never touches the shared baseline. Only
     # failed+new items are uploaded (actual/ holds nothing else -- see the
@@ -283,7 +296,7 @@ runs:
     # item is already correct in baseline/actual/ and is left alone.
     # Requires has_diff == 'true': a zero-diff run has nothing to change.
     - name: Update VRT baseline
-      if: ${{ env.VRT_IS_MAIN == 'true' && steps.vrt-compare.outputs.has_diff == 'true' }}
+      if: ${{ env.VRT_IS_MAIN == 'true' && steps.vrt-compare.outputs.has_diff == 'true' && steps.vrt-main-head.outputs.is_current == 'true' }}
       shell: bash
       working-directory: ${{ inputs.package-dir }}
       env:

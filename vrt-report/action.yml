@@ -14,12 +14,8 @@ description: >-
 # race to publish to the same R2 key at once -- most importantly two main
 # pushes racing to update the single `baseline/actual/` key, where each
 # run's diff was computed against a baseline the other run is concurrently
-# mutating. See README.md for the concurrency group this repo uses.
-#
-# Serializing runs this way still doesn't guarantee they finish in commit
-# order -- an older commit's run can finish after a newer commit's. The
-# "Check if VRT_SHA is still main's HEAD" step below guards the baseline
-# write itself against that case.
+# mutating. See README.md for the concurrency group this repo uses. This
+# only rules out overlapping runs, not commit order -- see below.
 
 inputs:
   package-dir:
@@ -281,16 +277,12 @@ runs:
         target-url: ${{ env.VRT_REPORT_URL }}
         github-token: ${{ inputs.github-token }}
 
-    # Runs for main pushes with a diff can finish out of commit order (see
-    # the concurrency comment at the top of this file), so a run whose
-    # VRT_SHA is no longer main's tip is comparing against a baseline
-    # that's already been superseded -- writing it now would revert the
-    # baseline to a stale image. Skip rather than fail: the run for
-    # whatever commit *is* the current tip always does its own compare and
-    # write later, so no change is ever permanently dropped.
+    # Concurrency does not guarantee completion in commit order; guard
+    # against older runs overwriting the baseline with a stale image.
     - name: Check if VRT_SHA is still main's HEAD
       if: ${{ env.VRT_IS_MAIN == 'true' && steps.vrt-compare.outputs.has_diff == 'true' }}
       id: vrt-main-head
+      continue-on-error: true
       shell: bash
       run: |
         remote_head=$(git ls-remote origin refs/heads/main | cut -f1)

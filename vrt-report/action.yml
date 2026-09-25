@@ -34,7 +34,9 @@ inputs:
     description: >-
       Optional command to generate a custom VRT report after comparison.
       It runs from package-dir and should write all report files into
-      .reg/custom/. A non-zero exit fails the action before publish.
+      .reg/custom/, including .reg/custom/index.html. When set, that report
+      is linked from the PR comment and commit status. A non-zero exit fails
+      the action before publish, as does a missing index.html.
     default: ''
   r2-bucket:
     description: >-
@@ -143,6 +145,8 @@ runs:
     - name: Set VRT snapshot keys
       id: vrt-keys
       shell: bash
+      env:
+        REPORT_COMMAND: ${{ inputs.report-command }}
       run: |
         expected_key=baseline
         echo "expected_key=$expected_key" >> "$GITHUB_OUTPUT"
@@ -151,7 +155,11 @@ runs:
         # previous snapshot instead of accumulating a new one per commit.
         actual_key="branch/${VRT_BRANCH}"
         echo "actual_key=$actual_key" >> "$GITHUB_OUTPUT"
-        echo "VRT_REPORT_URL=https://${VRT_REPORT_DOMAIN}/${actual_key}/index.html" >> "$GITHUB_ENV"
+        report_path=index.html
+        if [ -n "$REPORT_COMMAND" ]; then
+          report_path=custom/index.html
+        fi
+        echo "VRT_REPORT_URL=https://${VRT_REPORT_DOMAIN}/${actual_key}/${report_path}" >> "$GITHUB_ENV"
 
     - name: Compare VRT screenshots
       shell: bash
@@ -161,19 +169,18 @@ runs:
         VRT_ACTUAL_KEY: ${{ steps.vrt-keys.outputs.actual_key }}
         VRT_EXPECTED_KEY: ${{ steps.vrt-keys.outputs.expected_key }}
         VRT_SCREENSHOTS_DIR: ${{ inputs.screenshots-dir }}
+        REPORT_COMMAND: ${{ inputs.report-command }}
         AWS_ACCESS_KEY_ID: ${{ inputs.aws-access-key-id }}
         AWS_SECRET_ACCESS_KEY: ${{ inputs.aws-secret-access-key }}
       run: |
         reg_config="$GITHUB_WORKSPACE/.vrt-shared/reg-suit/regconfig.json"
         pnpm exec reg-suit sync-expected -c "$reg_config"
-        pnpm exec reg-suit compare -c "$reg_config"
 
-        # expected/ is byte-for-byte identical to the baseline key's actual/
-        # (that's literally where sync-expected fetched it from), so point
-        # the report's "before" pane at the baseline directly instead of
-        # uploading a duplicate copy under this run's key.
-        expected_rel=$(node -e "console.log(require('path').posix.relative(process.env.VRT_ACTUAL_KEY, process.env.VRT_EXPECTED_KEY))")
-        sed -i "s#\"expectedDir\":\"expected\"#\"expectedDir\":\"${expected_rel}/actual\"#" .reg/index.html
+        if [ -n "$REPORT_COMMAND" ]; then
+          node "$GITHUB_WORKSPACE/.vrt-shared/vrt-report/compare-without-report.cjs"
+        else
+          pnpm exec reg-suit compare -c "$reg_config"
+        fi
 
         diff_count=$(jq '(.failedItems | length) + (.newItems | length) + (.deletedItems | length)' .reg/out.json)
         echo "Diff count: $diff_count"
@@ -183,6 +190,21 @@ runs:
           echo "has_diff=true" >> "$GITHUB_OUTPUT"
         fi
 
+    - name: Point reg-suit report at baseline
+      if: ${{ inputs.report-command == '' }}
+      shell: bash
+      working-directory: ${{ inputs.package-dir }}
+      env:
+        VRT_ACTUAL_KEY: ${{ steps.vrt-keys.outputs.actual_key }}
+        VRT_EXPECTED_KEY: ${{ steps.vrt-keys.outputs.expected_key }}
+      run: |
+        # expected/ is byte-for-byte identical to the baseline key's actual/
+        # (that's literally where sync-expected fetched it from), so point
+        # the report's "before" pane at the baseline directly instead of
+        # uploading a duplicate copy under this run's key.
+        expected_rel=$(node -e "console.log(require('path').posix.relative(process.env.VRT_ACTUAL_KEY, process.env.VRT_EXPECTED_KEY))")
+        sed -i "s#\"expectedDir\":\"expected\"#\"expectedDir\":\"${expected_rel}/actual\"#" .reg/index.html
+
     # A passed item's actual/ file is byte-identical to baseline/actual/
     # (that's what made it pass), so uploading it again is a full copy of
     # the baseline for zero information. Deleting it here before publish
@@ -190,6 +212,7 @@ runs:
     # left untouched, since that's what the PR comment's passing count
     # reads from.
     - name: Strip passed items from VRT report
+      if: ${{ inputs.report-command == '' }}
       shell: bash
       working-directory: ${{ inputs.package-dir }}
       run: |
@@ -218,7 +241,9 @@ runs:
       working-directory: ${{ inputs.package-dir }}
       env:
         REPORT_COMMAND: ${{ inputs.report-command }}
-      run: bash -e -o pipefail -c "$REPORT_COMMAND"
+      run: |
+        bash -e -o pipefail -c "$REPORT_COMMAND"
+        test -f .reg/custom/index.html
 
     - name: Publish VRT report
       shell: bash

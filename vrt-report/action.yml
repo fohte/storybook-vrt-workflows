@@ -34,10 +34,15 @@ inputs:
     description: >-
       Optional command to generate a custom VRT report after comparison.
       It runs from package-dir and should write all report files into
-      .reg/custom/, including .reg/custom/index.html. When set, that report
-      is linked from the PR comment and commit status. A non-zero exit fails
-      the action before publish, as does a missing index.html.
+      .reg/custom/. The custom report is published alongside reg-suit's
+      report unless report-path selects it.
     default: ''
+  report-path:
+    description: >-
+      Entry page to link to, relative to this branch's report directory.
+      Defaults to index.html. Set a path under custom/ to link to a custom
+      report and skip reg-cli's HTML generation.
+    default: index.html
   r2-bucket:
     description: >-
       R2 bucket that stores screenshots, the baseline, and the published
@@ -146,8 +151,12 @@ runs:
       id: vrt-keys
       shell: bash
       env:
-        REPORT_COMMAND: ${{ inputs.report-command }}
+        REPORT_PATH: ${{ inputs.report-path }}
       run: |
+        if [[ "$REPORT_PATH" != "index.html" && ! "$REPORT_PATH" =~ ^custom/([A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*\.html$ ]]; then
+          echo "::error::report-path must be index.html or an HTML file under custom/"
+          exit 1
+        fi
         expected_key=baseline
         echo "expected_key=$expected_key" >> "$GITHUB_OUTPUT"
         echo "baseline_sha_key=$expected_key/sha" >> "$GITHUB_OUTPUT"
@@ -155,11 +164,7 @@ runs:
         # previous snapshot instead of accumulating a new one per commit.
         actual_key="branch/${VRT_BRANCH}"
         echo "actual_key=$actual_key" >> "$GITHUB_OUTPUT"
-        report_path=index.html
-        if [ -n "$REPORT_COMMAND" ]; then
-          report_path=custom/index.html
-        fi
-        echo "VRT_REPORT_URL=https://${VRT_REPORT_DOMAIN}/${actual_key}/${report_path}" >> "$GITHUB_ENV"
+        echo "VRT_REPORT_URL=https://$VRT_REPORT_DOMAIN/$actual_key/$REPORT_PATH" >> "$GITHUB_ENV"
 
     - name: Compare VRT screenshots
       shell: bash
@@ -169,14 +174,14 @@ runs:
         VRT_ACTUAL_KEY: ${{ steps.vrt-keys.outputs.actual_key }}
         VRT_EXPECTED_KEY: ${{ steps.vrt-keys.outputs.expected_key }}
         VRT_SCREENSHOTS_DIR: ${{ inputs.screenshots-dir }}
-        REPORT_COMMAND: ${{ inputs.report-command }}
+        REPORT_PATH: ${{ inputs.report-path }}
         AWS_ACCESS_KEY_ID: ${{ inputs.aws-access-key-id }}
         AWS_SECRET_ACCESS_KEY: ${{ inputs.aws-secret-access-key }}
       run: |
         reg_config="$GITHUB_WORKSPACE/.vrt-shared/reg-suit/regconfig.json"
         pnpm exec reg-suit sync-expected -c "$reg_config"
 
-        if [ -n "$REPORT_COMMAND" ]; then
+        if [ "$REPORT_PATH" != "index.html" ]; then
           node "$GITHUB_WORKSPACE/.vrt-shared/vrt-report/compare-without-report.cjs"
         else
           pnpm exec reg-suit compare -c "$reg_config"
@@ -191,7 +196,7 @@ runs:
         fi
 
     - name: Point reg-suit report at baseline
-      if: ${{ inputs.report-command == '' }}
+      if: ${{ inputs.report-path == 'index.html' }}
       shell: bash
       working-directory: ${{ inputs.package-dir }}
       env:
@@ -207,12 +212,9 @@ runs:
 
     # A passed item's actual/ file is byte-identical to baseline/actual/
     # (that's what made it pass), so uploading it again is a full copy of
-    # the baseline for zero information. Deleting it here before publish
-    # also drops it from index.html's embedded report data; out.json is
-    # left untouched, since that's what the PR comment's passing count
-    # reads from.
-    - name: Strip passed items from VRT report
-      if: ${{ inputs.report-command == '' }}
+    # the baseline for zero information. out.json is left untouched, since
+    # that's what the PR comment's passing count reads from.
+    - name: Strip passed items from VRT screenshots
       shell: bash
       working-directory: ${{ inputs.package-dir }}
       run: |
@@ -220,6 +222,11 @@ runs:
           rm -f -- ".reg/actual/$item"
         done
 
+    - name: Strip passed items from reg-suit report
+      if: ${{ inputs.report-path == 'index.html' }}
+      shell: bash
+      working-directory: ${{ inputs.package-dir }}
+      run: |
         node <<'EOF'
         const fs = require("fs");
         const html = fs.readFileSync(".reg/index.html", "utf8");
@@ -243,7 +250,18 @@ runs:
         REPORT_COMMAND: ${{ inputs.report-command }}
       run: |
         bash -e -o pipefail -c "$REPORT_COMMAND"
-        test -f .reg/custom/index.html
+
+    - name: Validate selected custom VRT report
+      if: ${{ inputs.report-path != 'index.html' }}
+      shell: bash
+      working-directory: ${{ inputs.package-dir }}
+      env:
+        REPORT_PATH: ${{ inputs.report-path }}
+      run: |
+        if [ ! -f ".reg/$REPORT_PATH" ]; then
+          echo "::error::Selected report .reg/$REPORT_PATH does not exist; generate it with report-command"
+          exit 1
+        fi
 
     - name: Publish VRT report
       shell: bash

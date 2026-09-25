@@ -82,8 +82,8 @@ jobs:
     # same R2 key at once -- most importantly two main pushes racing to
     # update the single `baseline/actual/` key, where each run's diff was
     # computed against a baseline the other run is concurrently mutating.
-    # This doesn't guarantee commit order for runs that finish sequentially;
-    # vrt-report guards the baseline write itself against that case.
+    # This doesn't guarantee commit order; vrt-report records the commit SHA
+    # stored with the baseline and skips runs older than that commit.
     concurrency:
       group: vrt-report-${{ (github.ref == 'refs/heads/main') && 'push' || 'pr' }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
       cancel-in-progress: false
@@ -142,15 +142,15 @@ This isn't purely "has `play` -> skippable": a story that asserts on the visual 
 
 ### `vrt-report` inputs
 
-| Input                   | Required | Default                           | Description                                                                                                                       |
-| ----------------------- | -------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `package-dir`           | no       | `.`                               | Directory containing the Storybook/vitest project.                                                                                |
-| `screenshots-dir`       | no       | `__screenshots__`                 | Directory (relative to `package-dir`) every shard's screenshots are downloaded into.                                              |
-| `r2-bucket`             | yes      | --                                | R2 bucket for screenshots/baseline/report.                                                                                        |
-| `r2-endpoint`           | no       | fohte's shared Cloudflare account | S3-compatible endpoint URL that hosts `r2-bucket`. Override for a consumer using its own account.                                 |
-| `report-domain`         | no       | `<r2-bucket>.fohte.net`           | Custom domain the published report and PR comment link are served from. Override for a consumer not using fohte's shared account. |
-| `aws-access-key-id`     | yes      | --                                | AWS-compatible access key ID for `r2-bucket`.                                                                                     |
-| `aws-secret-access-key` | yes      | --                                | AWS-compatible secret access key for `r2-bucket`.                                                                                 |
-| `github-token`          | yes      | --                                | Token used for PR comments and commit statuses (needs `pull-requests:write`, `statuses:write`).                                   |
+| Input                   | Required | Default                           | Description                                                                                                                                   |
+| ----------------------- | -------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `package-dir`           | no       | `.`                               | Directory containing the Storybook/vitest project.                                                                                            |
+| `screenshots-dir`       | no       | `__screenshots__`                 | Directory (relative to `package-dir`) every shard's screenshots are downloaded into.                                                          |
+| `r2-bucket`             | yes      | --                                | R2 bucket for screenshots/baseline/report.                                                                                                    |
+| `r2-endpoint`           | no       | fohte's shared Cloudflare account | S3-compatible endpoint URL that hosts `r2-bucket`. Override for a consumer using its own account.                                             |
+| `report-domain`         | no       | `<r2-bucket>.fohte.net`           | Custom domain the published report and PR comment link are served from. Override for a consumer not using fohte's shared account.             |
+| `aws-access-key-id`     | yes      | --                                | AWS-compatible access key ID for `r2-bucket`.                                                                                                 |
+| `aws-secret-access-key` | yes      | --                                | AWS-compatible secret access key for `r2-bucket`.                                                                                             |
+| `github-token`          | yes      | --                                | Token used for PR comments, commit statuses, and baseline commit comparison (needs `contents:read`, `pull-requests:write`, `statuses:write`). |
 
 `vrt-approval.yml` takes only `r2-bucket` and `report-domain` (same meaning as above) -- pass the same `report-domain` value given to `vrt-report`, if any.

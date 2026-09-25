@@ -29,6 +29,11 @@ inputs:
       vitest-plugin writes screenshots to and reg-suit reads them back
       from.
     default: __screenshots__
+  report-command:
+    description: >-
+      Optional command to generate a custom VRT report after comparison.
+      It runs from package-dir and should write report files into .reg/.
+    default: ''
   r2-bucket:
     description: >-
       R2 bucket that stores screenshots, the baseline, and the published
@@ -202,6 +207,14 @@ runs:
           html.slice(0, start) + JSON.stringify(report) + html.slice(end),
         );
         EOF
+
+    - name: Generate custom VRT report
+      if: ${{ inputs.report-command != '' }}
+      shell: bash
+      working-directory: ${{ inputs.package-dir }}
+      env:
+        REPORT_COMMAND: ${{ inputs.report-command }}
+      run: bash -e -o pipefail -c "$REPORT_COMMAND"
 
     - name: Publish VRT report
       shell: bash

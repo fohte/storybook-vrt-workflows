@@ -146,6 +146,7 @@ This isn't purely "has `play` -> skippable": a story that asserts on the visual 
 | ----------------------- | -------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | `package-dir`           | no       | `.`                               | Directory containing the Storybook/vitest project.                                                                                |
 | `screenshots-dir`       | no       | `__screenshots__`                 | Directory (relative to `package-dir`) every shard's screenshots are downloaded into.                                              |
+| `report-command`        | no       | `''`                              | Optional command to generate a custom report after comparison. Runs from `package-dir`; write report files into `.reg/`.          |
 | `r2-bucket`             | yes      | --                                | R2 bucket for screenshots/baseline/report.                                                                                        |
 | `r2-endpoint`           | no       | fohte's shared Cloudflare account | S3-compatible endpoint URL that hosts `r2-bucket`. Override for a consumer using its own account.                                 |
 | `report-domain`         | no       | `<r2-bucket>.fohte.net`           | Custom domain the published report and PR comment link are served from. Override for a consumer not using fohte's shared account. |

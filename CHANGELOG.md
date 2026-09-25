@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.6](https://github.com/fohte/storybook-vrt-workflows/compare/v0.1.5...v0.1.6) (2026-09-25)
+
+
+### Features
+
+* **vrt-report:** add a command to generate custom reports ([#70](https://github.com/fohte/storybook-vrt-workflows/issues/70)) ([7e68b97](https://github.com/fohte/storybook-vrt-workflows/commit/7e68b97e0d6cccdfc463c659e50d9e34c5a5ff51))
+
+
+### Bug Fixes
+
+* **vrt-report:** prevent missed baseline updates during consecutive merges to main ([#72](https://github.com/fohte/storybook-vrt-workflows/issues/72)) ([9c0abdf](https://github.com/fohte/storybook-vrt-workflows/commit/9c0abdfe445783a943c49d28cf45c1ca9de929bf))
+
 ## [0.1.5](https://github.com/fohte/storybook-vrt-workflows/compare/v0.1.4...v0.1.5) (2026-09-13)
 
 

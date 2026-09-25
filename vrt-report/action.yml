@@ -30,6 +30,12 @@ inputs:
       vitest-plugin writes screenshots to and reg-suit reads them back
       from.
     default: __screenshots__
+  report-command:
+    description: >-
+      Optional command to generate a custom VRT report after comparison.
+      It runs from package-dir and should write all report files into
+      .reg/custom/. A non-zero exit fails the action before publish.
+    default: ''
   r2-bucket:
     description: >-
       R2 bucket that stores screenshots, the baseline, and the published
@@ -206,6 +212,14 @@ runs:
         );
         EOF
 
+    - name: Generate custom VRT report
+      if: ${{ inputs.report-command != '' }}
+      shell: bash
+      working-directory: ${{ inputs.package-dir }}
+      env:
+        REPORT_COMMAND: ${{ inputs.report-command }}
+      run: bash -e -o pipefail -c "$REPORT_COMMAND"
+
     - name: Publish VRT report
       shell: bash
       working-directory: ${{ inputs.package-dir }}
@@ -217,9 +231,9 @@ runs:
         AWS_SECRET_ACCESS_KEY: ${{ inputs.aws-secret-access-key }}
         # actual/ now only holds failed+new items (see the previous step)
         # and diff/ only holds failed items' diffs, so this pattern uploads
-        # nothing beyond the report shell when there's no diff -- no need
-        # to branch on has_diff.
-        VRT_PUBLISH_PATTERN: '{*.{html,js,wasm,json},{actual,diff}/**/*.{png,jpeg,jpg,tiff,bmp,gif}}'
+        # only the report shell and optional custom report when there is no
+        # diff -- no need to branch on has_diff.
+        VRT_PUBLISH_PATTERN: '{*.{html,js,wasm,json},custom/**/*,{actual,diff}/**/*.{png,jpeg,jpg,tiff,bmp,gif}}'
       run: pnpm exec reg-suit publish -n -c "$GITHUB_WORKSPACE/.vrt-shared/reg-suit/regconfig.json"
 
     # Runs regardless of whether an open PR exists yet: pushing straight to

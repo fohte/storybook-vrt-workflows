@@ -14,8 +14,9 @@ description: >-
 # race to publish to the same R2 key at once -- most importantly two main
 # pushes racing to update the single `baseline/actual/` key, where each
 # run's diff was computed against a baseline the other run is concurrently
-# mutating. See README.md for the concurrency group this repo uses. This
-# only rules out overlapping runs, not commit order -- see below.
+# mutating. See README.md for the concurrency group this repo uses. Commit
+# order is not guaranteed, so this action tracks which commit wrote the
+# baseline and skips older runs.
 
 inputs:
   package-dir:
@@ -61,7 +62,7 @@ inputs:
   github-token:
     description: >-
       Token used for PR comments and commit statuses (needs
-      pull-requests:write, statuses:write).
+      contents:read, pull-requests:write, statuses:write).
     required: true
 
 runs:
@@ -143,7 +144,9 @@ runs:
       id: vrt-keys
       shell: bash
       run: |
-        echo "expected_key=baseline" >> "$GITHUB_OUTPUT"
+        expected_key=baseline
+        echo "expected_key=$expected_key" >> "$GITHUB_OUTPUT"
+        echo "baseline_sha_key=$expected_key/sha" >> "$GITHUB_OUTPUT"
         # One key per branch: re-pushing to the same branch overwrites its
         # previous snapshot instead of accumulating a new one per commit.
         actual_key="branch/${VRT_BRANCH}"
@@ -291,32 +294,70 @@ runs:
         target-url: ${{ env.VRT_REPORT_URL }}
         github-token: ${{ inputs.github-token }}
 
-    # Concurrency does not guarantee completion in commit order; guard
-    # against older runs overwriting the baseline with a stale image.
-    - name: Check if VRT_SHA is still main's HEAD
-      if: ${{ env.VRT_IS_MAIN == 'true' && steps.vrt-compare.outputs.has_diff == 'true' }}
-      id: vrt-main-head
-      continue-on-error: true
+    # ListObjectsV2 distinguishes an absent marker from access or network
+    # failures; only a confirmed absence allows the first baseline write.
+    - name: Check if VRT_SHA is older than the baseline
+      if: ${{ env.VRT_IS_MAIN == 'true' }}
+      id: vrt-baseline-order
       shell: bash
+      env:
+        AWS_ACCESS_KEY_ID: ${{ inputs.aws-access-key-id }}
+        AWS_SECRET_ACCESS_KEY: ${{ inputs.aws-secret-access-key }}
+        AWS_DEFAULT_REGION: auto
+        VRT_BASELINE_SHA_KEY: ${{ steps.vrt-keys.outputs.baseline_sha_key }}
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO: ${{ github.repository }}
       run: |
-        remote_head=$(git ls-remote origin refs/heads/main | cut -f1)
-        is_current=$([ "$remote_head" = "$VRT_SHA" ] && echo true || echo false)
-        echo "is_current=$is_current" >> "$GITHUB_OUTPUT"
+        marker_exists=$(aws s3api list-objects-v2 \
+          --bucket "$VRT_BUCKET" \
+          --prefix "$VRT_BASELINE_SHA_KEY" \
+          --endpoint-url "$VRT_R2_ENDPOINT" \
+          --output json | jq --arg key "$VRT_BASELINE_SHA_KEY" 'any(.Contents[]?; .Key == $key)')
 
-    # Reached only once reg-suit has successfully published this run's own
-    # report, so a failure above never touches the shared baseline. Only
-    # failed+new items are uploaded (actual/ holds nothing else -- see the
-    # Strip step above) and only deleted items are removed; every passed
-    # item is already correct in baseline/actual/ and is left alone.
-    # Requires has_diff == 'true': a zero-diff run has nothing to change.
+        if [ "$marker_exists" = false ]; then
+          echo "No baseline SHA marker; writing the first baseline"
+          echo "should_update=true" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        stored_sha=$(aws s3 cp "s3://${VRT_BUCKET}/${VRT_BASELINE_SHA_KEY}" - \
+          --endpoint-url "$VRT_R2_ENDPOINT")
+        if [[ ! "$stored_sha" =~ ^[[:xdigit:]]{40}$ ]]; then
+          echo "Stored baseline SHA is invalid" >&2
+          exit 1
+        fi
+
+        comparison_status=$(gh api "repos/$REPO/compare/$stored_sha...$VRT_SHA" --jq '.status')
+        echo "Baseline SHA comparison: stored=$stored_sha current=$VRT_SHA status=$comparison_status"
+        case "$comparison_status" in
+          behind)
+            echo "Skipping baseline update: $VRT_SHA is older than stored baseline $stored_sha"
+            echo "should_update=false" >> "$GITHUB_OUTPUT"
+            ;;
+          ahead|identical|diverged)
+            echo "should_update=true" >> "$GITHUB_OUTPUT"
+            ;;
+          *)
+            echo "Unexpected commit comparison status: $comparison_status" >&2
+            exit 1
+            ;;
+        esac
+
+    # Reached only after reg-suit has successfully published this run's own
+    # report and the baseline order check succeeded. Only failed+new items
+    # are uploaded (actual/ holds nothing else -- see the Strip step above)
+    # and only deleted items are removed; every passed item is already
+    # correct in baseline/actual/ and is left alone. Record the SHA last so
+    # it always identifies the commit represented by the baseline.
     - name: Update VRT baseline
-      if: ${{ env.VRT_IS_MAIN == 'true' && steps.vrt-compare.outputs.has_diff == 'true' && steps.vrt-main-head.outputs.is_current == 'true' }}
+      if: ${{ env.VRT_IS_MAIN == 'true' && steps.vrt-baseline-order.outputs.should_update == 'true' }}
       shell: bash
       working-directory: ${{ inputs.package-dir }}
       env:
         AWS_ACCESS_KEY_ID: ${{ inputs.aws-access-key-id }}
         AWS_SECRET_ACCESS_KEY: ${{ inputs.aws-secret-access-key }}
         AWS_DEFAULT_REGION: auto
+        VRT_BASELINE_SHA_KEY: ${{ steps.vrt-keys.outputs.baseline_sha_key }}
       run: |
         aws s3 cp .reg/actual "s3://${VRT_BUCKET}/baseline/actual" \
           --recursive \
@@ -326,3 +367,6 @@ runs:
           aws s3 rm "s3://${VRT_BUCKET}/baseline/actual/$item" \
             --endpoint-url "$VRT_R2_ENDPOINT"
         done
+
+        printf '%s\n' "$VRT_SHA" | aws s3 cp - "s3://${VRT_BUCKET}/${VRT_BASELINE_SHA_KEY}" \
+          --endpoint-url "$VRT_R2_ENDPOINT"

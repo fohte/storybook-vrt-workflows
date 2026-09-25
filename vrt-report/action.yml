@@ -138,7 +138,9 @@ runs:
       id: vrt-keys
       shell: bash
       run: |
-        echo "expected_key=baseline" >> "$GITHUB_OUTPUT"
+        expected_key=baseline
+        echo "expected_key=$expected_key" >> "$GITHUB_OUTPUT"
+        echo "baseline_sha_key=$expected_key/sha" >> "$GITHUB_OUTPUT"
         # One key per branch: re-pushing to the same branch overwrites its
         # previous snapshot instead of accumulating a new one per commit.
         actual_key="branch/${VRT_BRANCH}"
@@ -288,26 +290,23 @@ runs:
         AWS_ACCESS_KEY_ID: ${{ inputs.aws-access-key-id }}
         AWS_SECRET_ACCESS_KEY: ${{ inputs.aws-secret-access-key }}
         AWS_DEFAULT_REGION: auto
+        VRT_BASELINE_SHA_KEY: ${{ steps.vrt-keys.outputs.baseline_sha_key }}
         GH_TOKEN: ${{ inputs.github-token }}
         REPO: ${{ github.repository }}
       run: |
-        marker_key=baseline/sha
-        matching_markers=$(aws s3api list-objects-v2 \
+        marker_exists=$(aws s3api list-objects-v2 \
           --bucket "$VRT_BUCKET" \
-          --prefix "$marker_key" \
+          --prefix "$VRT_BASELINE_SHA_KEY" \
           --endpoint-url "$VRT_R2_ENDPOINT" \
-          --output json | jq --arg key "$marker_key" '[.Contents[]?.Key | select(. == $key)] | length')
+          --output json | jq --arg key "$VRT_BASELINE_SHA_KEY" 'any(.Contents[]?; .Key == $key)')
 
-        if [ "$matching_markers" -eq 0 ]; then
+        if [ "$marker_exists" = false ]; then
+          echo "No baseline SHA marker; writing the first baseline"
           echo "should_update=true" >> "$GITHUB_OUTPUT"
           exit 0
         fi
-        if [ "$matching_markers" -ne 1 ]; then
-          echo "Expected at most one baseline SHA marker, found $matching_markers" >&2
-          exit 1
-        fi
 
-        stored_sha=$(aws s3 cp "s3://${VRT_BUCKET}/${marker_key}" - \
+        stored_sha=$(aws s3 cp "s3://${VRT_BUCKET}/${VRT_BASELINE_SHA_KEY}" - \
           --endpoint-url "$VRT_R2_ENDPOINT")
         if [[ ! "$stored_sha" =~ ^[[:xdigit:]]{40}$ ]]; then
           echo "Stored baseline SHA is invalid" >&2
@@ -315,8 +314,10 @@ runs:
         fi
 
         comparison_status=$(gh api "repos/$REPO/compare/$stored_sha...$VRT_SHA" --jq '.status')
+        echo "Baseline SHA comparison: stored=$stored_sha current=$VRT_SHA status=$comparison_status"
         case "$comparison_status" in
           behind)
+            echo "Skipping baseline update: $VRT_SHA is older than stored baseline $stored_sha"
             echo "should_update=false" >> "$GITHUB_OUTPUT"
             ;;
           ahead|identical|diverged)
@@ -342,6 +343,7 @@ runs:
         AWS_ACCESS_KEY_ID: ${{ inputs.aws-access-key-id }}
         AWS_SECRET_ACCESS_KEY: ${{ inputs.aws-secret-access-key }}
         AWS_DEFAULT_REGION: auto
+        VRT_BASELINE_SHA_KEY: ${{ steps.vrt-keys.outputs.baseline_sha_key }}
       run: |
         aws s3 cp .reg/actual "s3://${VRT_BUCKET}/baseline/actual" \
           --recursive \
@@ -352,5 +354,5 @@ runs:
             --endpoint-url "$VRT_R2_ENDPOINT"
         done
 
-        printf '%s\n' "$VRT_SHA" | aws s3 cp - "s3://${VRT_BUCKET}/baseline/sha" \
+        printf '%s\n' "$VRT_SHA" | aws s3 cp - "s3://${VRT_BUCKET}/${VRT_BASELINE_SHA_KEY}" \
           --endpoint-url "$VRT_R2_ENDPOINT"

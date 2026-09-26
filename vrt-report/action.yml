@@ -1,11 +1,11 @@
 name: VRT report
 description: >-
   Downloads every shard's captured screenshots, compares them against the
-  shared baseline with reg-suit, publishes a report, comments on the PR,
-  sets the `vrt` commit status, and updates the baseline on pushes to
-  `main`. Call once after every vrt-capture matrix job has finished; the
-  caller is responsible for checkout and for installing its own
-  toolchain/dependencies before calling this action.
+  shared baseline with reg-suit, generates and publishes both reports,
+  comments on the PR, sets the `vrt` commit status, and updates the baseline
+  on pushes to `main`. Call once after every vrt-capture matrix job has
+  finished; the caller is responsible for checkout and for installing its
+  own toolchain/dependencies before calling this action.
 #
 # The caller's job must declare `permissions: contents: read,
 # pull-requests: write, statuses: write` -- composite actions can't declare
@@ -32,17 +32,9 @@ inputs:
     default: __screenshots__
   report-command:
     description: >-
-      Optional command to generate a custom VRT report after comparison.
-      It runs from package-dir and should write all report files into
-      .reg/custom/. The custom report is published alongside reg-suit's
-      report unless report-path selects it.
+      Deprecated compatibility input. Ignored; the action always generates
+      the custom report.
     default: ''
-  report-path:
-    description: >-
-      Entry page to link to, relative to this branch's report directory.
-      Defaults to index.html. Set a path under custom/ to link to a custom
-      report and skip reg-cli's HTML generation.
-    default: index.html
   r2-bucket:
     description: >-
       R2 bucket that stores screenshots, the baseline, and the published
@@ -56,9 +48,9 @@ inputs:
     default: https://8d88a085ccc7b11f252419e2f3a25fd6.r2.cloudflarestorage.com
   report-domain:
     description: >-
-      Custom domain the published VRT report and PR comment link are
-      served from. Defaults to <r2-bucket>.fohte.net -- the convention
-      for buckets on fohte's shared Cloudflare account.
+      Custom domain the published reports and PR comment links are served
+      from. Defaults to <r2-bucket>.fohte.net -- the convention for buckets
+      on fohte's shared Cloudflare account.
     default: ''
   aws-access-key-id:
     description: AWS-compatible access key ID for r2-bucket.
@@ -150,13 +142,7 @@ runs:
     - name: Set VRT snapshot keys
       id: vrt-keys
       shell: bash
-      env:
-        REPORT_PATH: ${{ inputs.report-path }}
       run: |
-        if [[ "$REPORT_PATH" != "index.html" && ! "$REPORT_PATH" =~ ^custom/([A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*\.html$ ]]; then
-          echo "::error::report-path must be index.html or an HTML file under custom/"
-          exit 1
-        fi
         expected_key=baseline
         echo "expected_key=$expected_key" >> "$GITHUB_OUTPUT"
         echo "baseline_sha_key=$expected_key/sha" >> "$GITHUB_OUTPUT"
@@ -164,7 +150,8 @@ runs:
         # previous snapshot instead of accumulating a new one per commit.
         actual_key="branch/${VRT_BRANCH}"
         echo "actual_key=$actual_key" >> "$GITHUB_OUTPUT"
-        echo "VRT_REPORT_URL=https://$VRT_REPORT_DOMAIN/$actual_key/$REPORT_PATH" >> "$GITHUB_ENV"
+        echo "VRT_REPORT_URL=https://$VRT_REPORT_DOMAIN/$actual_key/custom/index.html" >> "$GITHUB_ENV"
+        echo "VRT_REG_REPORT_URL=https://$VRT_REPORT_DOMAIN/$actual_key/index.html" >> "$GITHUB_ENV"
 
     - name: Compare VRT screenshots
       shell: bash
@@ -174,18 +161,13 @@ runs:
         VRT_ACTUAL_KEY: ${{ steps.vrt-keys.outputs.actual_key }}
         VRT_EXPECTED_KEY: ${{ steps.vrt-keys.outputs.expected_key }}
         VRT_SCREENSHOTS_DIR: ${{ inputs.screenshots-dir }}
-        REPORT_PATH: ${{ inputs.report-path }}
         AWS_ACCESS_KEY_ID: ${{ inputs.aws-access-key-id }}
         AWS_SECRET_ACCESS_KEY: ${{ inputs.aws-secret-access-key }}
       run: |
         reg_config="$GITHUB_WORKSPACE/.vrt-shared/reg-suit/regconfig.json"
         pnpm exec reg-suit sync-expected -c "$reg_config"
 
-        if [ "$REPORT_PATH" != "index.html" ]; then
-          node "$GITHUB_WORKSPACE/.vrt-shared/vrt-report/compare-without-report.cjs"
-        else
-          pnpm exec reg-suit compare -c "$reg_config"
-        fi
+        pnpm exec reg-suit compare -c "$reg_config"
 
         diff_count=$(jq '(.failedItems | length) + (.newItems | length) + (.deletedItems | length)' .reg/out.json)
         echo "Diff count: $diff_count"
@@ -196,7 +178,6 @@ runs:
         fi
 
     - name: Point reg-suit report at baseline
-      if: ${{ inputs.report-path == 'index.html' }}
       shell: bash
       working-directory: ${{ inputs.package-dir }}
       env:
@@ -223,7 +204,6 @@ runs:
         done
 
     - name: Strip passed items from reg-suit report
-      if: ${{ inputs.report-path == 'index.html' }}
       shell: bash
       working-directory: ${{ inputs.package-dir }}
       run: |
@@ -243,25 +223,16 @@ runs:
         EOF
 
     - name: Generate custom VRT report
-      if: ${{ inputs.report-command != '' }}
       shell: bash
       working-directory: ${{ inputs.package-dir }}
-      env:
-        REPORT_COMMAND: ${{ inputs.report-command }}
       run: |
-        bash -e -o pipefail -c "$REPORT_COMMAND"
-
-    - name: Validate selected custom VRT report
-      if: ${{ inputs.report-path != 'index.html' }}
-      shell: bash
-      working-directory: ${{ inputs.package-dir }}
-      env:
-        REPORT_PATH: ${{ inputs.report-path }}
-      run: |
-        if [ ! -f ".reg/$REPORT_PATH" ]; then
-          echo "::error::Selected report .reg/$REPORT_PATH does not exist; generate it with report-command"
-          exit 1
-        fi
+        # Branch report keys can contain slashes, so a relative path cannot
+        # reliably reach the baseline stored at the bucket root.
+        pnpm dlx @fohte/vrt-report@0.1.0 \
+          --input .reg/out.json \
+          --assets-dir .reg \
+          --output .reg/custom/index.html \
+          --baseline-dir "https://$VRT_REPORT_DOMAIN/baseline/actual"
 
     - name: Publish VRT report
       shell: bash
@@ -274,8 +245,8 @@ runs:
         AWS_SECRET_ACCESS_KEY: ${{ inputs.aws-secret-access-key }}
         # actual/ now only holds failed+new items (see the previous step)
         # and diff/ only holds failed items' diffs, so this pattern uploads
-        # only the report shell and optional custom report when there is no
-        # diff -- no need to branch on has_diff.
+        # only the two report entry pages when there is no diff -- no need
+        # to branch on has_diff.
         VRT_PUBLISH_PATTERN: '{*.{html,js,wasm,json},custom/**/*,{actual,diff}/**/*.{png,jpeg,jpg,tiff,bmp,gif}}'
       run: pnpm exec reg-suit publish -n -c "$GITHUB_WORKSPACE/.vrt-shared/reg-suit/regconfig.json"
 
@@ -290,6 +261,7 @@ runs:
         sha: ${{ env.VRT_SHA }}
         out-json-path: ${{ inputs.package-dir }}/.reg/out.json
         report-url: ${{ env.VRT_REPORT_URL }}
+        reg-report-url: ${{ env.VRT_REG_REPORT_URL }}
         github-token: ${{ inputs.github-token }}
 
     # A run that would report `failure` here must not clobber an approval

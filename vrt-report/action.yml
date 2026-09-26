@@ -30,14 +30,6 @@ inputs:
       vitest-plugin writes screenshots to and reg-suit reads them back
       from.
     default: __screenshots__
-  report-command:
-    description: >-
-      Deprecated compatibility input. Ignored; the action always generates
-      the custom report.
-    deprecationMessage: >-
-      report-command is ignored. vrt-report always generates its custom
-      report; remove this input from the caller workflow.
-    default: ''
   r2-bucket:
     description: >-
       R2 bucket that stores screenshots, the baseline, and the published

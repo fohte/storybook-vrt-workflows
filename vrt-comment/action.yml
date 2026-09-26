@@ -1,7 +1,8 @@
 name: VRT comment
 description: >-
-  Post or update a PR comment summarizing a reg-suit out.json. Resolves the
-  open PR for the given branch and no-ops if none exists.
+  Post or update a PR comment summarizing a reg-suit out.json with links to
+  the custom and reg-suit reports. Resolves the open PR for the given branch
+  and no-ops if none exists.
 
 inputs:
   repo:
@@ -17,7 +18,10 @@ inputs:
     description: Path to reg-suit's out.json
     required: true
   report-url:
-    description: VRT report URL to link in the comment
+    description: Custom VRT report URL to link in the comment
+    required: true
+  reg-report-url:
+    description: reg-suit report URL to link in the comment
     required: true
   github-token:
     description: Token used for gh api calls (needs pull-requests:write)
@@ -35,6 +39,7 @@ runs:
         SHA: ${{ inputs.sha }}
         OUT_JSON_PATH: ${{ inputs.out-json-path }}
         REPORT_URL: ${{ inputs.report-url }}
+        REG_REPORT_URL: ${{ inputs.reg-report-url }}
       run: |
         pr_number=$(gh pr list --repo "$REPO" --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
         if [ -z "$pr_number" ]; then
@@ -70,7 +75,8 @@ runs:
             echo "| $failed | $new | $deleted | $passed |"
           fi
           echo
-          echo "[View report]($REPORT_URL)"
+          echo "[View custom report]($REPORT_URL)"
+          echo "[View reg-suit comparison report]($REG_REPORT_URL)"
         } >"$body_file"
 
         # gh api's --jq is a plain jq filter string, not the jq binary

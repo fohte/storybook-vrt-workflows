@@ -155,4 +155,6 @@ This isn't purely "has `play` -> skippable": a story that asserts on the visual 
 
 `vrt-approval.yml` takes `r2-bucket` and optional `report-domain`; pass the same value given to `vrt-report` so the approval status points to the same custom report.
 
-Reports are published at `https://<report-domain>/branch/<branch>/custom/index.html` and `https://<report-domain>/branch/<branch>/index.html`. Remove the now-unused `report-command` from existing caller workflows. If custom report generation fails, the action stops before publishing reports, posting a PR comment, setting the commit status, or updating the baseline on `main`.
+Reports are published at `https://<report-domain>/branch/<branch>/custom/index.html` and `https://<report-domain>/branch/<branch>/index.html`. If custom report generation fails, the action stops before publishing reports, posting a PR comment, setting the commit status, or updating the baseline on `main`.
+
+The `report-command` input has been removed. Delete it from existing caller workflows.

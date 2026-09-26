@@ -146,14 +146,14 @@ This isn't purely "has `play` -> skippable": a story that asserts on the visual 
 | ----------------------- | -------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | `package-dir`           | no       | `.`                               | Directory containing the Storybook/vitest project.                                                                                            |
 | `screenshots-dir`       | no       | `__screenshots__`                 | Directory (relative to `package-dir`) every shard's screenshots are downloaded into.                                                          |
-| `report-command`        | no       | `''`                              | Deprecated compatibility input. Ignored; the action always generates the custom report with `@fohte/vrt-report@0.1.0`.                        |
+| `report-command`        | no       | `''`                              | Deprecated compatibility input. Ignored; remove it from caller workflows.                                                                     |
 | `r2-bucket`             | yes      | --                                | R2 bucket for screenshots/baseline/report.                                                                                                    |
 | `r2-endpoint`           | no       | fohte's shared Cloudflare account | S3-compatible endpoint URL that hosts `r2-bucket`. Override for a consumer using its own account.                                             |
-| `report-domain`         | no       | `<r2-bucket>.fohte.net`           | Custom domain the published report and PR comment link are served from. Override for a consumer not using fohte's shared account.             |
+| `report-domain`         | no       | `<r2-bucket>.fohte.net`           | Custom domain used by both published report URLs and their PR comment links. Override for a consumer not using fohte's shared account.        |
 | `aws-access-key-id`     | yes      | --                                | AWS-compatible access key ID for `r2-bucket`.                                                                                                 |
 | `aws-secret-access-key` | yes      | --                                | AWS-compatible secret access key for `r2-bucket`.                                                                                             |
 | `github-token`          | yes      | --                                | Token used for PR comments, commit statuses, and baseline commit comparison (needs `contents:read`, `pull-requests:write`, `statuses:write`). |
 
-`vrt-approval.yml` takes `r2-bucket` and optional `report-domain`; it targets the custom report used by the commit status.
+`vrt-approval.yml` takes `r2-bucket` and optional `report-domain`; pass the same value given to `vrt-report` so the approval status points to the same custom report.
 
-The action generates `.reg/custom/index.html` with the pinned `@fohte/vrt-report@0.1.0` package and passes an absolute `--baseline-dir` URL under the report domain. It publishes the custom report alongside reg-suit's standard report. PR comments link to both reports for comparison, while the `vrt` commit status targets the custom report. Existing `report-command` inputs are accepted for compatibility but ignored.
+Reports are published at `https://<report-domain>/branch/<branch>/custom/index.html` and `https://<report-domain>/branch/<branch>/index.html`. If custom report generation fails, the action stops before publishing reports, posting a PR comment, setting the commit status, or updating the baseline on `main`.

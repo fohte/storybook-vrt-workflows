@@ -34,6 +34,9 @@ inputs:
     description: >-
       Deprecated compatibility input. Ignored; the action always generates
       the custom report.
+    deprecationMessage: >-
+      report-command is ignored. vrt-report always generates its custom
+      report; remove this input from the caller workflow.
     default: ''
   r2-bucket:
     description: >-
@@ -243,8 +246,9 @@ runs:
         VRT_SCREENSHOTS_DIR: ${{ inputs.screenshots-dir }}
         AWS_ACCESS_KEY_ID: ${{ inputs.aws-access-key-id }}
         AWS_SECRET_ACCESS_KEY: ${{ inputs.aws-secret-access-key }}
-        # actual/ now only holds failed+new items (see the previous step)
-        # and diff/ only holds failed items' diffs, so this pattern uploads
+        # actual/ now only holds failed+new items after the "Strip passed
+        # items from VRT screenshots" step, and diff/ only holds failed
+        # items' diffs, so this pattern uploads
         # only the two report entry pages when there is no diff -- no need
         # to branch on has_diff.
         VRT_PUBLISH_PATTERN: '{*.{html,js,wasm,json},custom/**/*,{actual,diff}/**/*.{png,jpeg,jpg,tiff,bmp,gif}}'

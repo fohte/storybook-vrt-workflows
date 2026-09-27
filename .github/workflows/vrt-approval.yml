@@ -24,7 +24,6 @@ on:
           report-domain input resolved to for this consumer.
         type: string
         default: ''
-
 permissions:
   contents: read
 
@@ -94,5 +93,5 @@ jobs:
           sha: ${{ github.event.pull_request.head.sha }}
           state: success
           description: Approved via vrt-approved label
-          target-url: https://${{ inputs.report-domain || format('{0}.fohte.net', inputs.r2-bucket) }}/branch/${{ github.event.pull_request.head.ref }}/index.html
+          target-url: https://${{ inputs.report-domain || format('{0}.fohte.net', inputs.r2-bucket) }}/branch/${{ github.event.pull_request.head.ref }}/custom/index.html
           github-token: ${{ secrets.GITHUB_TOKEN }}

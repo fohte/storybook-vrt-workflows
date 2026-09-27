@@ -7,7 +7,7 @@
 Two composite actions and one reusable workflow:
 
 - `vrt-capture` -- captures one shard's Storybook screenshots and uploads them as an artifact. Call once per (project, shard) combination from your own matrix job.
-- `vrt-report` -- downloads every shard's screenshots, compares them against the shared baseline with reg-suit, publishes a report, comments on the PR, and sets the `vrt` commit status. Updates the baseline on pushes to `main`.
+- `vrt-report` -- downloads every shard's screenshots, compares them against the shared baseline with reg-suit, generates and publishes both the reg-suit and custom reports, comments on the PR with links to both, and sets the `vrt` commit status to the custom report. Updates the baseline on pushes to `main`.
 - `vrt-approval.yml` (reusable workflow) -- lets a human override a failing `vrt` status to success via the `vrt-approved` label, and clears the label on the next push.
 
 Both `vrt-capture` and `vrt-report` are composite actions, not reusable workflows: installing the caller's own toolchain and dependencies is a property of the caller's repo, not something this repo can standardize on. The caller's own job does its own checkout and setup, then calls these actions as steps interleaved with that setup.
@@ -142,18 +142,19 @@ This isn't purely "has `play` -> skippable": a story that asserts on the visual 
 
 ### `vrt-report` inputs
 
-| Input                   | Required | Default                           | Description                                                                                                                                                           |
-| ----------------------- | -------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `package-dir`           | no       | `.`                               | Directory containing the Storybook/vitest project.                                                                                                                    |
-| `screenshots-dir`       | no       | `__screenshots__`                 | Directory (relative to `package-dir`) every shard's screenshots are downloaded into.                                                                                  |
-| `report-command`        | no       | `''`                              | Optional command to generate a custom report after comparison. Runs from `package-dir`; write all report files into `.reg/custom/`. A non-zero exit fails the action. |
-| `r2-bucket`             | yes      | --                                | R2 bucket for screenshots/baseline/report.                                                                                                                            |
-| `r2-endpoint`           | no       | fohte's shared Cloudflare account | S3-compatible endpoint URL that hosts `r2-bucket`. Override for a consumer using its own account.                                                                     |
-| `report-domain`         | no       | `<r2-bucket>.fohte.net`           | Custom domain the published report and PR comment link are served from. Override for a consumer not using fohte's shared account.                                     |
-| `aws-access-key-id`     | yes      | --                                | AWS-compatible access key ID for `r2-bucket`.                                                                                                                         |
-| `aws-secret-access-key` | yes      | --                                | AWS-compatible secret access key for `r2-bucket`.                                                                                                                     |
-| `github-token`          | yes      | --                                | Token used for PR comments, commit statuses, and baseline commit comparison (needs `contents:read`, `pull-requests:write`, `statuses:write`).                         |
+| Input                   | Required | Default                           | Description                                                                                                                                   |
+| ----------------------- | -------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `package-dir`           | no       | `.`                               | Directory containing the Storybook/vitest project.                                                                                            |
+| `screenshots-dir`       | no       | `__screenshots__`                 | Directory (relative to `package-dir`) every shard's screenshots are downloaded into.                                                          |
+| `r2-bucket`             | yes      | --                                | R2 bucket for screenshots/baseline/report.                                                                                                    |
+| `r2-endpoint`           | no       | fohte's shared Cloudflare account | S3-compatible endpoint URL that hosts `r2-bucket`. Override for a consumer using its own account.                                             |
+| `report-domain`         | no       | `<r2-bucket>.fohte.net`           | Custom domain used by both published report URLs and their PR comment links. Override for a consumer not using fohte's shared account.        |
+| `aws-access-key-id`     | yes      | --                                | AWS-compatible access key ID for `r2-bucket`.                                                                                                 |
+| `aws-secret-access-key` | yes      | --                                | AWS-compatible secret access key for `r2-bucket`.                                                                                             |
+| `github-token`          | yes      | --                                | Token used for PR comments, commit statuses, and baseline commit comparison (needs `contents:read`, `pull-requests:write`, `statuses:write`). |
 
-`vrt-approval.yml` takes only `r2-bucket` and `report-domain` (same meaning as above) -- pass the same `report-domain` value given to `vrt-report`, if any.
+`vrt-approval.yml` takes `r2-bucket` and optional `report-domain`; pass the same value given to `vrt-report` so the approval status points to the same custom report.
 
-For example, set `report-command` to `pnpm run vrt:generate-report`. The command should put its HTML and supporting files under `.reg/custom/`, where they are published alongside the reg-suit report.
+Reports are published at `https://<report-domain>/branch/<branch>/custom/index.html` and `https://<report-domain>/branch/<branch>/index.html`. If custom report generation fails, the action stops before publishing reports, posting a PR comment, setting the commit status, or updating the baseline on `main`.
+
+The `report-command` input has been removed. Delete it from existing caller workflows.

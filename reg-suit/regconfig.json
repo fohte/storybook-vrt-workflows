@@ -10,19 +10,6 @@
     "reg-simple-keygen-plugin": {
       "expectedKey": "${VRT_EXPECTED_KEY}",
       "actualKey": "${VRT_ACTUAL_KEY}"
-    },
-    "reg-publish-s3-plugin": {
-      "bucketName": "${VRT_BUCKET}",
-      "customDomain": "${VRT_REPORT_DOMAIN}",
-      "pattern": "${VRT_PUBLISH_PATTERN}",
-      "sdkOptions": {
-        "region": "auto",
-        "endpoint": "${VRT_R2_ENDPOINT}",
-        "credentials": {
-          "accessKeyId": "${AWS_ACCESS_KEY_ID}",
-          "secretAccessKey": "${AWS_SECRET_ACCESS_KEY}"
-        }
-      }
     }
   }
 }

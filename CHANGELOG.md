@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.0](https://github.com/fohte/storybook-vrt-workflows/compare/v0.1.6...v0.2.0) (2026-09-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* **vrt-report:** generate custom reports by default and link to both reports ([#73](https://github.com/fohte/storybook-vrt-workflows/issues/73))
+
+### Features
+
+* **vrt-report:** generate custom reports by default and link to both reports ([#73](https://github.com/fohte/storybook-vrt-workflows/issues/73)) ([fb1a3d9](https://github.com/fohte/storybook-vrt-workflows/commit/fb1a3d9a1782f1a9fab4594033a22e85efb1d6a1))
+
 ## [0.1.6](https://github.com/fohte/storybook-vrt-workflows/compare/v0.1.5...v0.1.6) (2026-09-25)
 
 

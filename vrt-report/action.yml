@@ -152,12 +152,17 @@ runs:
       working-directory: ${{ inputs.package-dir }}
       id: vrt-compare
       env:
-        VRT_ACTUAL_KEY: ${{ steps.vrt-keys.outputs.actual_key }}
         VRT_EXPECTED_KEY: ${{ steps.vrt-keys.outputs.expected_key }}
         VRT_SCREENSHOTS_DIR: ${{ inputs.screenshots-dir }}
+        AWS_ACCESS_KEY_ID: ${{ inputs.aws-access-key-id }}
+        AWS_SECRET_ACCESS_KEY: ${{ inputs.aws-secret-access-key }}
+        AWS_DEFAULT_REGION: auto
       run: |
         reg_config="$GITHUB_WORKSPACE/.vrt-shared/reg-suit/regconfig.json"
-        pnpm exec reg-suit sync-expected -c "$reg_config"
+        mkdir -p .reg/expected
+        aws s3 cp "s3://${VRT_BUCKET}/${VRT_EXPECTED_KEY}/actual" .reg/expected \
+          --recursive \
+          --endpoint-url "$VRT_R2_ENDPOINT"
 
         pnpm exec reg-suit compare -c "$reg_config"
 
@@ -202,7 +207,14 @@ runs:
         AWS_SECRET_ACCESS_KEY: ${{ inputs.aws-secret-access-key }}
         AWS_DEFAULT_REGION: auto
       run: |
-        aws s3 rm "s3://${VRT_BUCKET}/${VRT_ACTUAL_KEY}/index.html" \
+        aws s3 rm "s3://${VRT_BUCKET}/${VRT_ACTUAL_KEY}/" \
+          --recursive \
+          --exclude '*' \
+          --include '*.html' \
+          --include '*.js' \
+          --include '*.wasm' \
+          --include '*.json' \
+          --exclude 'custom/*' \
           --endpoint-url "$VRT_R2_ENDPOINT"
 
         aws s3 cp .reg/custom "s3://${VRT_BUCKET}/${VRT_ACTUAL_KEY}/custom" \
@@ -329,12 +341,12 @@ runs:
             ;;
         esac
 
-    # Reached only after reg-suit has successfully published this run's own
-    # report and the baseline order check succeeded. Only failed+new items
-    # are uploaded (actual/ holds nothing else -- see the Strip step above)
-    # and only deleted items are removed; every passed item is already
-    # correct in baseline/actual/ and is left alone. Record the SHA last so
-    # it always identifies the commit represented by the baseline.
+    # Reached only after the custom report has been published and the
+    # baseline order check succeeded. Only failed+new items are uploaded
+    # (actual/ holds nothing else -- see the Strip step above) and only
+    # deleted items are removed; every passed item is already correct in
+    # baseline/actual/ and is left alone. Record the SHA last so it always
+    # identifies the commit represented by the baseline.
     - name: Update VRT baseline
       if: ${{ env.VRT_IS_MAIN == 'true' && steps.vrt-baseline-order.outputs.should_update == 'true' }}
       shell: bash

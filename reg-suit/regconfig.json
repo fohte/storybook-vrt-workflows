@@ -5,11 +5,5 @@
     "matchingThreshold": 0.01,
     "enableAntialias": true,
     "thresholdPixel": 10
-  },
-  "plugins": {
-    "reg-simple-keygen-plugin": {
-      "expectedKey": "${VRT_EXPECTED_KEY}",
-      "actualKey": "${VRT_ACTUAL_KEY}"
-    }
   }
 }

@@ -17,6 +17,7 @@ A consumer repo needs:
 - A Storybook project wired up via `@fohte/storybook-addon`'s vitest-plugin (`createStorybookProject`).
 - A named npm script that captures screenshots (passed as `capture-script`).
 - An R2 bucket already provisioned for screenshots/baseline/report storage.
+- The AWS CLI available in the report job for baseline reads and report uploads.
 
 ### Example caller
 

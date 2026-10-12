@@ -1,10 +1,12 @@
 # Changes here will be overwritten by Copier
-_commit: v0.11.7
+_commit: v0.11.9
 _src_path: https://github.com/fohte/generic-boilerplate
 auto_merge_release_pr: false
+db: false
 description: '@fohte''s personal GitHub Actions workflows for Storybook visual regression
     testing'
 is_public: true
+pr_title_check: true
 project_name: storybook-vrt-workflows
 release_type: simple
 repo_id: '1339719353'

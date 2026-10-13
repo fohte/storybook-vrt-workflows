@@ -1,9 +1,9 @@
 name: VRT approval
 
 # vrt-report sets the `vrt` commit status per push based on reg-suit's diff
-# result. This workflow lets a human override that to success for an
-# intentional diff via the `vrt-approved` label, and keeps the label from
-# silently surviving a diff nobody has actually reviewed.
+# result. This workflow lets a human or an agent mark an intentional diff as
+# reviewed with `vrt-approved` or `vrt-agent-reviewed`, and keeps those labels
+# from silently surviving a diff nobody has actually reviewed.
 #
 # Call-only: a `pull_request` trigger declared here would only fire for PRs
 # in this repo, not the consumer repos that call this workflow -- trigger it
@@ -38,19 +38,20 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # A new push gets its own head SHA, whose `vrt` status starts fresh
-      # (see vrt-report) regardless of this label -- but the label itself must
-      # still be removed, or it keeps reading as "the current diff is
+      # (see vrt-report) regardless of these labels -- but the labels must
+      # still be removed, or they keep reading as "the current diff is
       # approved" when nobody has looked at it yet.
-      - name: Remove stale vrt-approved label
+      - name: Remove stale VRT approval labels
         if: >-
           github.event.action == 'synchronize' &&
-          contains(github.event.pull_request.labels.*.name, 'vrt-approved')
+          (contains(github.event.pull_request.labels.*.name, 'vrt-approved') ||
+          contains(github.event.pull_request.labels.*.name, 'vrt-agent-reviewed'))
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh pr edit ${{ github.event.pull_request.number }} \
             --repo ${{ github.repository }} \
-            --remove-label vrt-approved
+            --remove-label vrt-approved,vrt-agent-reviewed
 
       # `./` in a reusable workflow resolves against the *caller's* checkout,
       # so vrt-status is fetched from this repo into a side directory instead
@@ -58,7 +59,8 @@ jobs:
       - name: Resolve this workflow's own ref
         if: >-
           github.event.action == 'labeled' &&
-          github.event.label.name == 'vrt-approved'
+          (github.event.label.name == 'vrt-approved' ||
+          github.event.label.name == 'vrt-agent-reviewed')
         id: self-ref
         env:
           # github.workflow_ref points at the *caller's* workflow, not this
@@ -72,7 +74,8 @@ jobs:
       - name: Checkout storybook-vrt-workflows
         if: >-
           github.event.action == 'labeled' &&
-          github.event.label.name == 'vrt-approved'
+          (github.event.label.name == 'vrt-approved' ||
+          github.event.label.name == 'vrt-agent-reviewed')
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: fohte/storybook-vrt-workflows
@@ -86,12 +89,13 @@ jobs:
       - name: Set VRT status to success
         if: >-
           github.event.action == 'labeled' &&
-          github.event.label.name == 'vrt-approved'
+          (github.event.label.name == 'vrt-approved' ||
+          github.event.label.name == 'vrt-agent-reviewed')
         uses: ./.vrt-shared/vrt-status
         with:
           repo: ${{ github.repository }}
           sha: ${{ github.event.pull_request.head.sha }}
           state: success
-          description: Approved via vrt-approved label
+          description: Approved via ${{ github.event.label.name }} label
           target-url: https://${{ inputs.report-domain || format('{0}.fohte.net', inputs.r2-bucket) }}/branch/${{ github.event.pull_request.head.ref }}/custom/index.html
           github-token: ${{ secrets.GITHUB_TOKEN }}

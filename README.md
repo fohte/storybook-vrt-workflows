@@ -8,7 +8,7 @@ Two composite actions and one reusable workflow:
 
 - `vrt-capture` -- captures one shard's Storybook screenshots and uploads them as an artifact. Call once per (project, shard) combination from your own matrix job.
 - `vrt-report` -- downloads every shard's screenshots, compares them against the shared baseline with reg-suit, generates and publishes the custom report, comments on the PR with its link, and sets the `vrt` commit status to that report. Updates the baseline on pushes to `main`.
-- `vrt-approval.yml` (reusable workflow) -- lets a human override a failing `vrt` status to success via the `vrt-approved` label, and clears the label on the next push.
+- `vrt-approval.yml` (reusable workflow) -- lets a human or an agent mark a diff as reviewed with `vrt-approved` or `vrt-agent-reviewed`, sets the `vrt` status to success, and clears both labels on the next push.
 
 Both `vrt-capture` and `vrt-report` are composite actions, not reusable workflows: installing the caller's own toolchain and dependencies is a property of the caller's repo, not something this repo can standardize on. The caller's own job does its own checkout and setup, then calls these actions as steps interleaved with that setup.
 
@@ -119,6 +119,13 @@ jobs:
 ```
 
 reg-suit's config lives in this repo (`reg-suit/regconfig.json`) and is not meant to be copied into consumer repos -- `vrt-report` fetches it directly at the pinned ref.
+
+### VRT approval labels
+
+- `vrt-approved` means a human reviewed the visual differences and accepted them.
+- `vrt-agent-reviewed` means an agent reviewed the visual differences and accepted them.
+
+Either label sets the `vrt` status to success. Its description includes the label name, so it shows which kind of review approved the diff. A new push removes both labels.
 
 ### `vrt-capture` inputs
 

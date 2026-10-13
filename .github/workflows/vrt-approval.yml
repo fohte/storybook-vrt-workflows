@@ -52,7 +52,7 @@ jobs:
           PULL_REQUEST_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         shell: bash
         run: |
-          labels_to_remove=$(jq -cn \
+          labels_to_remove=$(jq -rn \
             --argjson approval_labels "$VRT_APPROVAL_LABELS" \
             --argjson current_labels "$PULL_REQUEST_LABELS" \
             '$current_labels | map(select(. as $label | ($approval_labels | index($label)) != null)) | join(",")')

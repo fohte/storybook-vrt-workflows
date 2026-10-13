@@ -260,9 +260,11 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.github-token }}
         REPO: ${{ github.repository }}
+        VRT_APPROVAL_LABELS: '["vrt-approved","vrt-agent-reviewed"]'
       run: |
-        approved=$(gh pr list --repo "$REPO" --head "$VRT_BRANCH" --state open --json labels \
-          --jq 'if length == 0 then false else (.[0].labels | any(.name == "vrt-approved" or .name == "vrt-agent-reviewed")) end')
+        approved=$(gh pr list --repo "$REPO" --head "$VRT_BRANCH" --state open --json labels |
+          jq --argjson approval_labels "$VRT_APPROVAL_LABELS" \
+            'if length == 0 then false else (.[0].labels | any(.name as $name | ($approval_labels | index($name)) != null)) end')
         echo "approved=$approved" >> "$GITHUB_OUTPUT"
 
     # A separate, non-required status (as opposed to the required

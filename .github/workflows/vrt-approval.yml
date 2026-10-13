@@ -34,6 +34,8 @@ jobs:
       contents: read
       pull-requests: write
       statuses: write
+    env:
+      VRT_APPROVAL_LABELS: '["vrt-approved","vrt-agent-reviewed"]'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -41,17 +43,26 @@ jobs:
       # (see vrt-report) regardless of these labels -- but the labels must
       # still be removed, or they keep reading as "the current diff is
       # approved" when nobody has looked at it yet.
+      # gh pr edit resolves label names against labels defined in the repo,
+      # so remove only approval labels attached to this PR.
       - name: Remove stale VRT approval labels
-        if: >-
-          github.event.action == 'synchronize' &&
-          (contains(github.event.pull_request.labels.*.name, 'vrt-approved') ||
-          contains(github.event.pull_request.labels.*.name, 'vrt-agent-reviewed'))
+        if: github.event.action == 'synchronize'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PULL_REQUEST_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        shell: bash
         run: |
+          labels_to_remove=$(jq -cn \
+            --argjson approval_labels "$VRT_APPROVAL_LABELS" \
+            --argjson current_labels "$PULL_REQUEST_LABELS" \
+            '$current_labels | map(select(. as $label | ($approval_labels | index($label)) != null)) | join(",")')
+          if [ -z "$labels_to_remove" ]; then
+            exit 0
+          fi
+
           gh pr edit ${{ github.event.pull_request.number }} \
             --repo ${{ github.repository }} \
-            --remove-label vrt-approved,vrt-agent-reviewed
+            --remove-label "$labels_to_remove"
 
       # `./` in a reusable workflow resolves against the *caller's* checkout,
       # so vrt-status is fetched from this repo into a side directory instead
@@ -59,8 +70,7 @@ jobs:
       - name: Resolve this workflow's own ref
         if: >-
           github.event.action == 'labeled' &&
-          (github.event.label.name == 'vrt-approved' ||
-          github.event.label.name == 'vrt-agent-reviewed')
+          contains(fromJSON(env.VRT_APPROVAL_LABELS), github.event.label.name)
         id: self-ref
         env:
           # github.workflow_ref points at the *caller's* workflow, not this
@@ -72,10 +82,7 @@ jobs:
         run: echo "ref=${WORKFLOW_REF#*@}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout storybook-vrt-workflows
-        if: >-
-          github.event.action == 'labeled' &&
-          (github.event.label.name == 'vrt-approved' ||
-          github.event.label.name == 'vrt-agent-reviewed')
+        if: steps.self-ref.outcome == 'success'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: fohte/storybook-vrt-workflows
@@ -87,10 +94,7 @@ jobs:
       # result was, which is out of scope here. The only invalidation this
       # workflow implements is the unconditional one above: a new push.
       - name: Set VRT status to success
-        if: >-
-          github.event.action == 'labeled' &&
-          (github.event.label.name == 'vrt-approved' ||
-          github.event.label.name == 'vrt-agent-reviewed')
+        if: steps.self-ref.outcome == 'success'
         uses: ./.vrt-shared/vrt-status
         with:
           repo: ${{ github.repository }}

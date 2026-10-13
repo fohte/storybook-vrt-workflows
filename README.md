@@ -118,14 +118,14 @@ jobs:
       r2-bucket: example-app-vrt
 ```
 
+reg-suit's config lives in this repo (`reg-suit/regconfig.json`) and is not meant to be copied into consumer repos -- `vrt-report` fetches it directly at the pinned ref.
+
 ### VRT approval labels
 
 - `vrt-approved` means a human reviewed the visual differences and accepted them.
 - `vrt-agent-reviewed` means an agent reviewed the visual differences and accepted them.
 
 Either label sets the `vrt` status to success. Its description includes the label name, so it shows which kind of review approved the diff. A new push removes both labels.
-
-reg-suit's config lives in this repo (`reg-suit/regconfig.json`) and is not meant to be copied into consumer repos -- `vrt-report` fetches it directly at the pinned ref.
 
 ### `vrt-capture` inputs
 

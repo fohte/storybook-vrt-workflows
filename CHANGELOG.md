@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.1](https://github.com/fohte/storybook-vrt-workflows/compare/v0.2.0...v0.2.1) (2026-10-13)
+
+
+### Features
+
+* **vrt-approval:** support agent review labels ([#98](https://github.com/fohte/storybook-vrt-workflows/issues/98)) ([09c46e3](https://github.com/fohte/storybook-vrt-workflows/commit/09c46e3742de00ddbc7cff4843862d5641ec483c))
+* **vrt-report:** publish and notify custom reports only ([#76](https://github.com/fohte/storybook-vrt-workflows/issues/76)) ([eea29e2](https://github.com/fohte/storybook-vrt-workflows/commit/eea29e221128fe86d38742c033e1a8148a2c4794))
+
 ## [0.2.0](https://github.com/fohte/storybook-vrt-workflows/compare/v0.1.6...v0.2.0) (2026-09-27)
 
 

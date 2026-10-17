@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.2](https://github.com/fohte/storybook-vrt-workflows/compare/v0.2.1...v0.2.2) (2026-10-17)
+
+
+### Dependencies
+
+* Update actions/download-artifact action to v8.0.2 ([#99](https://github.com/fohte/storybook-vrt-workflows/issues/99)) ([3669823](https://github.com/fohte/storybook-vrt-workflows/commit/366982387faaf8bf4ca174becda060537f1d7a07))
+* Update actions/upload-artifact action to v7.0.2 ([#100](https://github.com/fohte/storybook-vrt-workflows/issues/100)) ([f8b1b07](https://github.com/fohte/storybook-vrt-workflows/commit/f8b1b077ca543c0daf19690d2710cb9c5b5afe5e))
+
 ## [0.2.1](https://github.com/fohte/storybook-vrt-workflows/compare/v0.2.0...v0.2.1) (2026-10-13)
 
 

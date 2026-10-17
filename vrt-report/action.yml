@@ -192,7 +192,7 @@ runs:
       run: |
         # Branch report keys can contain slashes, so a relative path cannot
         # reliably reach the baseline stored at the bucket root.
-        pnpm dlx @fohte/vrt-report@0.1.1 \
+        pnpm dlx @fohte/vrt-report@0.1.2 \
           --input .reg/out.json \
           --assets-dir .reg \
           --output .reg/custom/index.html \

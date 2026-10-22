@@ -7,7 +7,7 @@
 Two composite actions and one reusable workflow:
 
 - `vrt-capture` -- captures one shard's Storybook screenshots and uploads them as an artifact. Call once per (project, shard) combination from your own matrix job.
-- `vrt-report` -- downloads every shard's screenshots, compares them against the shared baseline with reg-suit, generates and publishes the custom report, comments on the PR with its link, and sets the `vrt` commit status to that report. Updates the baseline on pushes to `main`.
+- `vrt-report` -- downloads every shard's screenshots, compares them against the shared baseline with reg-suit, generates and publishes the custom report, comments on the PR with its link, and sets the `vrt` commit status to that report. Updates the baseline on pushes to the repository's default branch.
 - `vrt-approval.yml` (reusable workflow) -- lets a human or an agent mark a diff as reviewed with `vrt-approved` or `vrt-agent-reviewed`, sets the `vrt` status to success, and clears both labels on the next push.
 
 Both `vrt-capture` and `vrt-report` are composite actions, not reusable workflows: installing the caller's own toolchain and dependencies is a property of the caller's repo, not something this repo can standardize on. The caller's own job does its own checkout and setup, then calls these actions as steps interleaved with that setup.
@@ -21,6 +21,8 @@ A consumer repo needs:
 
 ### Example caller
 
+Set the push trigger's branch to the caller repository's default branch.
+
 ```yaml
 # .github/workflows/vrt.yml
 name: VRT
@@ -28,7 +30,7 @@ name: VRT
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: ['<repository-default-branch>']
 
 env:
   SHARDS: 2
@@ -80,13 +82,13 @@ jobs:
       pull-requests: write
       statuses: write
     # Overlapping runs for the same ref would otherwise race to publish to the
-    # same R2 key at once -- most importantly two main pushes racing to
+    # same R2 key at once -- most importantly two pushes to the default branch racing to
     # update the single `baseline/actual/` key, where each run's diff was
     # computed against a baseline the other run is concurrently mutating.
     # This doesn't guarantee commit order; vrt-report records the commit SHA
     # stored with the baseline and skips runs older than that commit.
     concurrency:
-      group: vrt-report-${{ (github.ref == 'refs/heads/main') && 'push' || 'pr' }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
+      group: vrt-report-${{ (github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) && 'push' || 'pr' }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -163,6 +165,6 @@ This isn't purely "has `play` -> skippable": a story that asserts on the visual 
 
 `vrt-approval.yml` takes `r2-bucket` and optional `report-domain`; pass the same value given to `vrt-report` so the approval status points to the same custom report.
 
-The report is published at `https://<report-domain>/branch/<branch>/custom/index.html`. If custom report generation fails, the action stops before publishing the report, posting a PR comment, setting the commit status, or updating the baseline on `main`.
+The report is published at `https://<report-domain>/branch/<branch>/custom/index.html`. If custom report generation fails, the action stops before publishing the report, posting a PR comment, setting the commit status, or updating the baseline on the default branch.
 
 The `report-command` input has been removed. Delete it from existing caller workflows.

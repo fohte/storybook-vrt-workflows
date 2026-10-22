@@ -27,6 +27,9 @@ jobs:
           persist-credentials: false
           fetch-depth: 2
 
+      - name: Test VRT context
+        run: bash vrt-report/test-compute-context.sh
+
       - name: Check if current commit is auto-format by bot
         id: check-auto-format
         run: |

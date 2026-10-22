@@ -30,7 +30,7 @@ name: VRT
 on:
   pull_request:
   push:
-    branches: [repository-default-branch]
+    branches: ['<repository-default-branch>']
 
 env:
   SHARDS: 2

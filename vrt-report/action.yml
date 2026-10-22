@@ -3,16 +3,16 @@ description: >-
   Downloads every shard's captured screenshots, compares them against the
   shared baseline with reg-suit, generates and publishes the custom report,
   comments on the PR, sets the `vrt` commit status, and updates the baseline
-  on pushes to `main`. Call once after every vrt-capture matrix job has
-  finished; the caller is responsible for checkout and for installing its
-  own toolchain/dependencies before calling this action.
+  on pushes to the repository's default branch. Call once after every
+  vrt-capture matrix job has finished; the caller is responsible for checkout
+  and for installing its own toolchain/dependencies before calling this action.
 #
 # The caller's job must declare `permissions: contents: read,
 # pull-requests: write, statuses: write` -- composite actions can't declare
 # `permissions:` themselves. The caller's job must also declare a
 # `concurrency:` block: overlapping runs for the same ref would otherwise
-# race to publish to the same R2 key at once -- most importantly two main
-# pushes racing to update the single `baseline/actual/` key, where each
+# race to publish to the same R2 key at once -- most importantly two pushes to
+# the default branch racing to update the single `baseline/actual/` key, where each
 # run's diff was computed against a baseline the other run is concurrently
 # mutating. See README.md for the concurrency group this repo uses. Commit
 # order is not guaranteed, so this action tracks which commit wrote the
@@ -102,27 +102,10 @@ runs:
         PUSH_REF_NAME: ${{ github.ref_name }}
         PUSH_SHA: ${{ github.sha }}
         CURRENT_REF: ${{ github.ref }}
-      run: |
-        if [ "$EVENT_NAME" = "pull_request" ]; then
-          branch="$PR_HEAD_REF"
-          sha="$PR_HEAD_SHA"
-        else
-          branch="$PUSH_REF_NAME"
-          sha="$PUSH_SHA"
-        fi
-        is_main=$([ "$CURRENT_REF" = "refs/heads/main" ] && echo true || echo false)
-        # Falls back to <r2-bucket>.fohte.net -- the convention for buckets
-        # on fohte's shared Cloudflare account -- when report-domain isn't
-        # set.
-        report_domain="${REPORT_DOMAIN_INPUT:-${R2_BUCKET}.fohte.net}"
-        {
-          echo "VRT_BRANCH=$branch"
-          echo "VRT_SHA=$sha"
-          echo "VRT_IS_MAIN=$is_main"
-          echo "VRT_BUCKET=$R2_BUCKET"
-          echo "VRT_REPORT_DOMAIN=$report_domain"
-          echo "VRT_R2_ENDPOINT=$R2_ENDPOINT"
-        } >> "$GITHUB_ENV"
+        # Routed through env because repository settings are untrusted event
+        # data and must not become shell source.
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      run: bash .vrt-shared/vrt-report/compute-context.sh
 
     - name: Download screenshots
       uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -235,7 +218,7 @@ runs:
         done
 
     # Runs regardless of whether an open PR exists yet: pushing straight to
-    # main (no PR) or to a branch without an open PR both no-op inside the
+    # the default branch (no PR) or to a branch without an open PR both no-op inside the
     # action instead of failing here.
     - name: Post VRT PR comment
       uses: ./.vrt-shared/vrt-comment
@@ -273,10 +256,10 @@ runs:
     # is applied, and clears both labels (never this status directly) on the
     # next push -- the new commit's own status here starts fresh anyway.
     #
-    # Skipped on main: a diff there just means a merged PR intentionally
+    # Skipped on the default branch: a diff there just means a merged PR intentionally
     # changed the UI, already reviewed and approved on that PR. There's no
-    # open PR to carry an approval label on main, so this status could never
-    # be un-failed -- it would sit red on main's HEAD permanently.
+    # open PR to carry an approval label on the default branch, so this status
+    # could never be un-failed -- it would sit red on its HEAD permanently.
     #
     # continue-on-error so a transient failure here (rate limit, network
     # blip) doesn't fail the caller's job over a best-effort, non-required

@@ -77,8 +77,7 @@ runs:
         # script, so the command text can't break out of the script source.
         INSTALL_COMMAND: ${{ inputs.install-command }}
       run: |
-        sudo apt-get clean
-        eval "$INSTALL_COMMAND"
+        bash "$GITHUB_ACTION_PATH/install.sh"
 
     - name: Save downloaded apt packages to cache
       if: steps.apt-cache.outputs.cache-hit != 'true'

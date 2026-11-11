@@ -30,6 +30,9 @@ jobs:
       - name: Test VRT context
         run: bash vrt-report/test-compute-context.sh
 
+      - name: Test apt install retry
+        run: bash apt-install/test-install.sh
+
       - name: Check if current commit is auto-format by bot
         id: check-auto-format
         run: |

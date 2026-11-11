@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Remove packages from earlier action calls once; retries keep new downloads available.
+# Exclude unrelated runner and prior-call .debs from this cache; retries keep new downloads.
 sudo apt-get clean
 
 max_attempts=3

@@ -70,6 +70,12 @@ run_install() {
   MODE=$1 INSTALL_COMMAND='sudo apt-get install fixture-package' bash "$script_dir/install.sh"
 }
 
+run_install_command() {
+  : > "$EVENTS"
+  printf '0\n' > "$ATTEMPTS"
+  INSTALL_COMMAND=$1 bash "$script_dir/install.sh"
+}
+
 output_file="$test_dir/output"
 if run_install hang_then_succeed > "$output_file" 2>&1; then
   :
@@ -111,6 +117,30 @@ fi
 warning_count=$(grep -c '::warning::apt install attempt' "$output_file")
 if [ "$warning_count" -ne 3 ]; then
   printf 'Expected 3 warnings after all attempts fail, got %s\n' "$warning_count" >&2
+  exit 1
+fi
+
+if run_install_command 'false | true; echo continued' > "$output_file" 2>&1; then
+  printf 'Expected pipeline failure to trigger retries\n' >&2
+  exit 1
+fi
+
+if [ "$(cat "$EVENTS")" != "clean
+pkill
+pkill
+pkill" ]; then
+  printf 'Expected pipefail and errexit to stop the command before its final statement:\n%s\n' "$(cat "$EVENTS")" >&2
+  exit 1
+fi
+
+warning_count=$(grep -c '::warning::apt install attempt' "$output_file")
+if [ "$warning_count" -ne 3 ]; then
+  printf 'Expected 3 warnings for shell option failures, got %s\n' "$warning_count" >&2
+  exit 1
+fi
+
+if grep -Fq continued "$output_file"; then
+  printf 'Command continued after a failed pipeline\n' >&2
   exit 1
 fi
 

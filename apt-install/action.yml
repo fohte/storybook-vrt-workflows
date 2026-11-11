@@ -66,9 +66,6 @@ runs:
           sudo dpkg --configure -a
         fi
 
-    # apt-get clean first: the runner image, or an earlier apt-install call
-    # site in this same job, can leave unrelated .deb files sitting in the
-    # archives dir, which would otherwise leak into this call site's cache.
     - name: Install apt packages
       if: steps.apt-cache.outputs.cache-hit != 'true'
       shell: bash

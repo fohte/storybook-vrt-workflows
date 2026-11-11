@@ -31,7 +31,10 @@ set -euo pipefail
 
 if [ "$1" = 'pkill' ]; then
   printf 'pkill\n' >> "$EVENTS"
-  [ "$2" = '-x' ] && [ "$3" = 'apt-get' ]
+  if [ "$2" != '-x' ] || [ "$3" != 'apt-get' ]; then
+    printf 'Unexpected pkill arguments: %s\n' "$*" >&2
+    exit 2
+  fi
   exit 0
 fi
 

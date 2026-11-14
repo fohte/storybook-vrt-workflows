@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.3](https://github.com/fohte/storybook-vrt-workflows/compare/v0.2.2...v0.2.3) (2026-11-13)
+
+
+### Bug Fixes
+
+* **apt-install:** retry apt installs with timeout ([#134](https://github.com/fohte/storybook-vrt-workflows/issues/134)) ([d87e80b](https://github.com/fohte/storybook-vrt-workflows/commit/d87e80b56703e7fb4d138185edb2eddb2e116d33))
+
 ## [0.2.2](https://github.com/fohte/storybook-vrt-workflows/compare/v0.2.1...v0.2.2) (2026-10-22)
 
 

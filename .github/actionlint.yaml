@@ -1,8 +1,23 @@
+<<<<<<< before updating
+||||||| last update
+=======
+# GitHub Actions supports `queue`, but actionlint's concurrency schema does not.
+>>>>>>> after updating
 paths:
+<<<<<<< before updating
   .github/workflows/vrt-approval.yml:
+||||||| last update
+=======
+  .github/workflows/release-please.yml:
+>>>>>>> after updating
     ignore:
+<<<<<<< before updating
       # actionlint doesn't know about job.workflow_ref yet -- it's a real,
       # documented GitHub Actions context property, just not in actionlint's
       # bundled type definitions. Tracked upstream:
       # https://github.com/rhysd/actionlint/issues/696
       - 'property "workflow_ref" is not defined in object type \{check_run_id:'
+||||||| last update
+=======
+      - 'unexpected key "queue" for "concurrency" section'
+>>>>>>> after updating

@@ -33,6 +33,9 @@ jobs:
       - name: Test apt install retry
         run: bash apt-install/test-install.sh
 
+      - name: Test cached apt install auto-deconfigure
+        run: bash apt-install/test-install-cached.sh
+
       - name: Check if current commit is auto-format by bot
         id: check-auto-format
         run: |

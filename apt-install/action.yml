@@ -47,24 +47,12 @@ runs:
         # instead of the image.
         key: ${{ runner.os }}-apt-${{ inputs.key }}-${{ steps.image-version.outputs.version }}-${{ inputs.cache-key-suffix }}
 
-    # dpkg doesn't resolve install order across multiple files given in one
-    # invocation, so a dependency can land after the package that needs it
-    # and get left unconfigured. `dpkg --configure -a` finishes configuring
-    # whatever `dpkg -i` couldn't, purely from the already-unpacked local
-    # data — no network access.
     - name: Install cached apt packages
       if: steps.apt-cache.outputs.cache-hit == 'true'
       shell: bash
       env:
         CACHE_KEY: ${{ inputs.key }}
-      run: |
-        cache_dir="$HOME/.cache/apt-debs/$CACHE_KEY"
-        shopt -s nullglob
-        debs=("$cache_dir"/*.deb)
-        if [ "${#debs[@]}" -gt 0 ]; then
-          sudo dpkg -i "${debs[@]}" || true
-          sudo dpkg --configure -a
-        fi
+      run: bash "$GITHUB_ACTION_PATH/install-cached.sh" "$HOME/.cache/apt-debs/$CACHE_KEY"
 
     - name: Install apt packages
       if: steps.apt-cache.outputs.cache-hit != 'true'

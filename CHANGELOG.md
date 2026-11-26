@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.4](https://github.com/fohte/storybook-vrt-workflows/compare/v0.2.3...v0.2.4) (2026-11-26)
+
+
+### Bug Fixes
+
+* **apt-install:** handle cached Breaks relations ([#151](https://github.com/fohte/storybook-vrt-workflows/issues/151)) ([079f566](https://github.com/fohte/storybook-vrt-workflows/commit/079f566cb8929524c1f114f1cc79db36e11cdfd4))
+
 ## [0.2.3](https://github.com/fohte/storybook-vrt-workflows/compare/v0.2.2...v0.2.3) (2026-11-13)
 
 
